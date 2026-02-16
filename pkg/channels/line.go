@@ -15,10 +15,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/sipeed/picoclaw/pkg/bus"
-	"github.com/sipeed/picoclaw/pkg/config"
-	"github.com/sipeed/picoclaw/pkg/logger"
-	"github.com/sipeed/picoclaw/pkg/utils"
+	"github.com/jamesrossdev/luckyclaw/pkg/bus"
+	"github.com/jamesrossdev/luckyclaw/pkg/config"
+	"github.com/jamesrossdev/luckyclaw/pkg/logger"
+	"github.com/jamesrossdev/luckyclaw/pkg/utils"
 )
 
 const (

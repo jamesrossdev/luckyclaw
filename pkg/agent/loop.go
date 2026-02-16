@@ -1,8 +1,8 @@
-// PicoClaw - Ultra-lightweight personal AI agent
+// LuckyClaw - Ultra-lightweight personal AI agent
 // Inspired by and based on nanobot: https://github.com/HKUDS/nanobot
 // License: MIT
 //
-// Copyright (c) 2026 PicoClaw contributors
+// Copyright (c) 2026 LuckyClaw contributors
 
 package agent
 
@@ -18,16 +18,16 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/sipeed/picoclaw/pkg/bus"
-	"github.com/sipeed/picoclaw/pkg/channels"
-	"github.com/sipeed/picoclaw/pkg/config"
-	"github.com/sipeed/picoclaw/pkg/constants"
-	"github.com/sipeed/picoclaw/pkg/logger"
-	"github.com/sipeed/picoclaw/pkg/providers"
-	"github.com/sipeed/picoclaw/pkg/session"
-	"github.com/sipeed/picoclaw/pkg/state"
-	"github.com/sipeed/picoclaw/pkg/tools"
-	"github.com/sipeed/picoclaw/pkg/utils"
+	"github.com/jamesrossdev/luckyclaw/pkg/bus"
+	"github.com/jamesrossdev/luckyclaw/pkg/channels"
+	"github.com/jamesrossdev/luckyclaw/pkg/config"
+	"github.com/jamesrossdev/luckyclaw/pkg/constants"
+	"github.com/jamesrossdev/luckyclaw/pkg/logger"
+	"github.com/jamesrossdev/luckyclaw/pkg/providers"
+	"github.com/jamesrossdev/luckyclaw/pkg/session"
+	"github.com/jamesrossdev/luckyclaw/pkg/state"
+	"github.com/jamesrossdev/luckyclaw/pkg/tools"
+	"github.com/jamesrossdev/luckyclaw/pkg/utils"
 )
 
 type AgentLoop struct {

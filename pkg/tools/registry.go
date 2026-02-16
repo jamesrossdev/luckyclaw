@@ -6,8 +6,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/sipeed/picoclaw/pkg/logger"
-	"github.com/sipeed/picoclaw/pkg/providers"
+	"github.com/jamesrossdev/luckyclaw/pkg/logger"
+	"github.com/jamesrossdev/luckyclaw/pkg/providers"
 )
 
 type ToolRegistry struct {

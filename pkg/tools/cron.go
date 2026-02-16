@@ -6,9 +6,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/sipeed/picoclaw/pkg/bus"
-	"github.com/sipeed/picoclaw/pkg/cron"
-	"github.com/sipeed/picoclaw/pkg/utils"
+	"github.com/jamesrossdev/luckyclaw/pkg/bus"
+	"github.com/jamesrossdev/luckyclaw/pkg/cron"
+	"github.com/jamesrossdev/luckyclaw/pkg/utils"
 )
 
 // JobExecutor is the interface for executing cron jobs through the agent

@@ -1,40 +1,40 @@
 services:
   # ─────────────────────────────────────────────
-  # PicoClaw Agent (one-shot query)
-  #   docker compose run --rm picoclaw-agent -m "Hello"
+  # LuckyClaw Agent (one-shot query)
+  #   docker compose run --rm luckyclaw-agent -m "Hello"
   # ─────────────────────────────────────────────
-  picoclaw-agent:
+  luckyclaw-agent:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: picoclaw-agent
+    container_name: luckyclaw-agent
     profiles:
       - agent
     volumes:
-      - ./config/config.json:/root/.picoclaw/config.json:ro
-      - picoclaw-workspace:/root/.picoclaw/workspace
-    entrypoint: ["picoclaw", "agent"]
+      - ./config/config.json:/root/.luckyclaw/config.json:ro
+      - luckyclaw-workspace:/root/.luckyclaw/workspace
+    entrypoint: ["luckyclaw", "agent"]
     stdin_open: true
     tty: true
 
   # ─────────────────────────────────────────────
-  # PicoClaw Gateway (Long-running Bot)
-  #   docker compose up picoclaw-gateway
+  # LuckyClaw Gateway (Long-running Bot)
+  #   docker compose up luckyclaw-gateway
   # ─────────────────────────────────────────────
-  picoclaw-gateway:
+  luckyclaw-gateway:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: picoclaw-gateway
+    container_name: luckyclaw-gateway
     restart: unless-stopped
     profiles:
       - gateway
     volumes:
       # Configuration file
-      - ./config/config.json:/root/.picoclaw/config.json:ro
+      - ./config/config.json:/root/.luckyclaw/config.json:ro
       # Persistent workspace (sessions, memory, logs)
-      - picoclaw-workspace:/root/.picoclaw/workspace
+      - luckyclaw-workspace:/root/.luckyclaw/workspace
     command: ["gateway"]
 
 volumes:
-  picoclaw-workspace:
+  luckyclaw-workspace:

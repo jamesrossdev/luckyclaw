@@ -8,17 +8,18 @@ build/
 *.dylib
 *.test
 *.out
-/picoclaw
-/picoclaw-test
-cmd/picoclaw/workspace
+/luckyclaw
+/luckyclaw-test
+cmd/luckyclaw/workspace
 
-# Picoclaw specific
-
-# PicoClaw
-.picoclaw/
+# LuckyClaw specific
+.luckyclaw/
 config.json
 sessions/
 build/
+
+# Luckfox Pico SDK (cloned locally, not committed)
+luckfox-pico-sdk/
 
 # Coverage
 
