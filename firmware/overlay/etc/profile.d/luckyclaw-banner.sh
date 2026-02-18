@@ -2,13 +2,17 @@
 # LuckyClaw SSH login banner
 # Shown when user SSHs into the device
 
-echo ""
-echo "  _               _          ____ _"
-echo " | |   _   _  ___| | __   / ___| | __ ___      __"
-echo " | |  | | | |/ __| |/ / | |   | |/ _\` \ \ /\ / /"
-echo " | |__| |_| | (__|   <| |_| |___| | (_| |\ V  V /"
-echo " |_____\__,_|\___|_|\_\\\__, \___|_|\__,_| \_/\_/"
-echo "                       |___/"
+export PATH=$PATH:/usr/local/bin
+
+cat << 'BANNER'
+
+ _               _           ____  _
+| |   _   _  ___| | ___   _ / ___|| | __ ___      __
+| |  | | | |/ __| |/ / | | | |   | |/ _` \ \ /\ / /
+| |__| |_| | (__|   <| |_| | |___| | (_| |\ V  V /
+|_____\__,_|\___|_|\_\\__, |\____|_|\__,_| \_/\_/
+                      |___/
+BANNER
 
 # Show version if available
 if command -v luckyclaw > /dev/null 2>&1; then
@@ -36,8 +40,10 @@ echo "  Memory:  ${MEM_AVAIL}MB / ${MEM_TOTAL}MB available"
 
 echo ""
 echo "  Commands:"
-echo "    luckyclaw status    — System status"
-echo "    luckyclaw onboard   — Setup wizard"
-echo "    luckyclaw gateway   — Start AI gateway"
+echo "    luckyclaw status      — System status"
+echo "    luckyclaw onboard     — Setup wizard"
+echo "    luckyclaw gateway     — Start AI gateway"
+echo "    luckyclaw gateway -b  — Start in background"
+echo "    luckyclaw stop        — Stop gateway"
+echo "    luckyclaw restart     — Restart gateway"
 echo ""
-export PATH=$PATH:/usr/local/bin
