@@ -53,11 +53,14 @@ func (p *HTTPProvider) Chat(ctx context.Context, messages []Message, tools []Too
 		return nil, fmt.Errorf("API base not configured")
 	}
 
-	// Strip provider prefix from model name (e.g., moonshot/kimi-k2.5 -> kimi-k2.5, groq/openai/gpt-oss-120b -> openai/gpt-oss-120b, ollama/qwen2.5:14b -> qwen2.5:14b)
-	if idx := strings.Index(model, "/"); idx != -1 {
-		prefix := model[:idx]
-		if prefix == "moonshot" || prefix == "nvidia" || prefix == "groq" || prefix == "ollama" {
-			model = model[idx+1:]
+	// Strip provider prefix from model name (e.g., moonshot/kimi-k2.5 -> kimi-k2.5)
+	// BUT NOT for OpenRouter — OpenRouter uses full model IDs like "nvidia/nemotron-3-nano-30b-a3b:free"
+	if !strings.Contains(p.apiBase, "openrouter.ai") {
+		if idx := strings.Index(model, "/"); idx != -1 {
+			prefix := model[:idx]
+			if prefix == "moonshot" || prefix == "nvidia" || prefix == "groq" || prefix == "ollama" {
+				model = model[idx+1:]
+			}
 		}
 	}
 

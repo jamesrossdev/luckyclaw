@@ -255,31 +255,21 @@ func promptYN(prompt string) bool {
 	return resp == "y" || resp == "yes"
 }
 
-// validateAPIKey tests an API key by making a simple chat completion request.
-func validateAPIKey(apiBase, apiKey, model string) error {
-	reqBody := map[string]interface{}{
-		"model": model,
-		"messages": []map[string]string{
-			{"role": "user", "content": "hi"},
-		},
-		"max_tokens": 5,
-	}
-	body, _ := json.Marshal(reqBody)
-
-	endpoint := strings.TrimRight(apiBase, "/") + "/chat/completions"
-	req, _ := http.NewRequest("POST", endpoint, strings.NewReader(string(body)))
-	req.Header.Set("Content-Type", "application/json")
+// validateOpenRouterKey tests an OpenRouter API key via the /auth/key endpoint.
+// This only checks key validity — doesn't need a model, so it can't 404.
+func validateOpenRouterKey(apiKey string) error {
+	req, _ := http.NewRequest("GET", "https://openrouter.ai/api/v1/auth/key", nil)
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 
-	client := &http.Client{Timeout: 15 * time.Second}
+	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("connection failed: %v", err)
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode == 401 {
-		return fmt.Errorf("invalid API key (401 Unauthorized)")
+	if resp.StatusCode == 401 || resp.StatusCode == 403 {
+		return fmt.Errorf("invalid API key")
 	}
 	if resp.StatusCode >= 400 {
 		return fmt.Errorf("API error (HTTP %d)", resp.StatusCode)
@@ -335,16 +325,6 @@ func detectBoardModel() string {
 
 func onboard() {
 	configPath := getConfigPath()
-	reader := bufio.NewReader(os.Stdin)
-
-	// Check for existing config
-	if _, err := os.Stat(configPath); err == nil {
-		fmt.Printf("Config already exists at %s\n", configPath)
-		if !promptYN("Overwrite?") {
-			fmt.Println("Aborted.")
-			return
-		}
-	}
 
 	fmt.Println()
 	fmt.Println("  ╔══════════════════════════════════════╗")
@@ -353,63 +333,72 @@ func onboard() {
 	fmt.Println("  ╚══════════════════════════════════════╝")
 	fmt.Println()
 
-	// Step 1: Detect hardware
+	// Show hardware info
 	model := detectBoardModel()
 	if model != "" {
 		fmt.Printf("  Board: %s\n", model)
 	}
-	// Show memory info
-	if memOut, err := exec.Command("free", "-m").Output(); err == nil {
-		lines := strings.Split(string(memOut), "\n")
+	// Read memory from /proc/meminfo
+	if memData, err := os.ReadFile("/proc/meminfo"); err == nil {
+		lines := strings.Split(string(memData), "\n")
+		var total, avail int
 		for _, line := range lines {
-			if strings.HasPrefix(line, "Mem:") {
-				fmt.Printf("  Memory: %s\n", strings.TrimSpace(line))
+			if strings.HasPrefix(line, "MemTotal:") {
+				fmt.Sscanf(line, "MemTotal: %d", &total)
 			}
+			if strings.HasPrefix(line, "MemAvailable:") {
+				fmt.Sscanf(line, "MemAvailable: %d", &avail)
+			}
+		}
+		if total > 0 {
+			fmt.Printf("  Memory: %dMB / %dMB available\n", avail/1024, total/1024)
 		}
 	}
 	fmt.Println()
 
+	// Build config in memory — only save at the very end (atomic)
 	cfg := config.DefaultConfig()
 
-	// Step 2: API Provider (OpenRouter)
-	fmt.Println("  Step 1: API Provider")
-	fmt.Println("  ─────────────────────")
-	fmt.Println("  LuckyClaw uses OpenRouter for AI — one key, many models.")
-	fmt.Println("  Get a free API key at: https://openrouter.ai/keys")
+	// Step 1: OpenRouter API Key
+	fmt.Println("  Step 1: OpenRouter API Key")
+	fmt.Println("  ──────────────────────────")
+	fmt.Println("  Get your key at: https://openrouter.ai/keys")
 	fmt.Println()
 
-	apiKey := promptLine("  OpenRouter API Key (or Enter to skip): ")
-
-	cfg.Agents.Defaults.Provider = "openrouter"
-	cfg.Agents.Defaults.Model = "google/gemini-2.0-flash-exp:free"
-	cfg.Agents.Defaults.MaxTokens = 4096
-	cfg.Agents.Defaults.MaxToolIterations = 10
-	cfg.Providers.OpenRouter.APIBase = "https://openrouter.ai/api/v1"
-
-	if apiKey != "" {
+	apiKey := promptLine("  API Key: ")
+	if apiKey == "" {
+		fmt.Println("  Skipped — edit ~/.luckyclaw/config.json later.")
+	} else {
 		cfg.Providers.OpenRouter.APIKey = apiKey
+		cfg.Providers.OpenRouter.APIBase = "https://openrouter.ai/api/v1"
 
-		// Validate
-		fmt.Print("  Validating API key... ")
-		if err := validateAPIKey(cfg.Providers.OpenRouter.APIBase, apiKey, cfg.Agents.Defaults.Model); err != nil {
+		fmt.Print("  Validating... ")
+		if err := validateOpenRouterKey(apiKey); err != nil {
 			fmt.Printf("⚠ %v\n", err)
-			fmt.Println("  (Key saved anyway — you can fix it in config.json)")
+			fmt.Println("  (Key saved anyway — check it later)")
 		} else {
 			fmt.Println("✓")
 		}
-	} else {
-		fmt.Println("  Skipped — edit ~/.luckyclaw/config.json later.")
 	}
 
-	// Custom model?
-	fmt.Printf("  Default model: %s\n", cfg.Agents.Defaults.Model)
-	if customModel := promptLine("  Custom model (or Enter to keep): "); customModel != "" {
+	// Step 2: Model
+	fmt.Println()
+	fmt.Println("  Step 2: Model")
+	fmt.Println("  ─────────────")
+	fmt.Printf("  Default: %s\n", cfg.Agents.Defaults.Model)
+	fmt.Println("  See README.md for how to choose a model.")
+	fmt.Println()
+
+	if customModel := promptLine("  Model ID (or Enter for default): "); customModel != "" {
 		cfg.Agents.Defaults.Model = customModel
 	}
+	cfg.Agents.Defaults.Provider = "openrouter"
+	cfg.Agents.Defaults.MaxTokens = 4096
+	cfg.Agents.Defaults.MaxToolIterations = 10
 
 	// Step 3: Timezone
 	fmt.Println()
-	fmt.Println("  Step 2: Timezone")
+	fmt.Println("  Step 3: Timezone")
 	fmt.Println("  ─────────────────")
 	detectedTZ := detectTimezone()
 	if detectedTZ != "" {
@@ -423,61 +412,43 @@ func onboard() {
 	}
 	if detectedTZ != "" {
 		os.Setenv("TZ", detectedTZ)
-		// Persist to /etc/profile if we have permission
-		profileEntry := fmt.Sprintf("export TZ='%s'\n", detectedTZ)
 		if f, err := os.OpenFile("/etc/profile.d/timezone.sh", os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644); err == nil {
-			f.WriteString(profileEntry)
+			f.WriteString(fmt.Sprintf("export TZ='%s'\n", detectedTZ))
 			f.Close()
 			fmt.Printf("  Timezone set: %s ✓\n", detectedTZ)
 		} else {
-			// Non-root — just set env
 			fmt.Printf("  Timezone set for this session: %s\n", detectedTZ)
 		}
 	}
 
-	// Step 4: Messaging channel
+	// Step 4: Telegram
 	fmt.Println()
-	fmt.Println("  Step 3: Messaging Channel")
-	fmt.Println("  ──────────────────────────")
-	fmt.Println("  [1] Telegram")
-	fmt.Println("  [2] Skip (more channels coming soon: Discord, WhatsApp, Slack)")
+	fmt.Println("  Step 4: Telegram")
+	fmt.Println("  ──────────────────")
+	fmt.Println("  See README.md for setup instructions.")
 	fmt.Println()
 
-	channelChoice := promptLine("  Choose channel [2]: ")
-	if channelChoice == "" {
-		channelChoice = "2"
-	}
+	tgToken := promptLine("  Bot token (or Enter to skip): ")
+	if tgToken != "" {
+		fmt.Print("  Validating... ")
+		username, err := validateTelegramToken(tgToken)
+		if err != nil {
+			fmt.Printf("⚠ %v\n", err)
+			fmt.Println("  (Token saved anyway — check it later)")
+		} else {
+			fmt.Printf("✓ @%s\n", username)
+		}
 
-	if channelChoice == "1" {
-		fmt.Println()
-		fmt.Println("  To create a Telegram bot:")
-		fmt.Println("  1. Message @BotFather on Telegram")
-		fmt.Println("  2. Send /newbot and follow the prompts")
-		fmt.Println("  3. Copy the bot token")
-		fmt.Println()
+		cfg.Channels.Telegram.Enabled = true
+		cfg.Channels.Telegram.Token = tgToken
 
-		tgToken := promptLine("  Bot token: ")
-		if tgToken != "" {
-			fmt.Print("  Validating token... ")
-			username, err := validateTelegramToken(tgToken)
-			if err != nil {
-				fmt.Printf("⚠ %v\n", err)
-				fmt.Println("  (Token saved anyway — check it later)")
-			} else {
-				fmt.Printf("✓ @%s\n", username)
-			}
-
-			cfg.Channels.Telegram.Enabled = true
-			cfg.Channels.Telegram.Token = tgToken
-
-			tgUserID := promptLine("  Your Telegram user ID (optional, for access control): ")
-			if tgUserID != "" {
-				cfg.Channels.Telegram.AllowFrom = config.FlexibleStringSlice{tgUserID}
-			}
+		tgUserID := promptLine("  Your Telegram user ID (optional): ")
+		if tgUserID != "" {
+			cfg.Channels.Telegram.AllowFrom = config.FlexibleStringSlice{tgUserID}
 		}
 	}
 
-	// Save config
+	// Atomic save — everything at once
 	fmt.Println()
 	if err := config.SaveConfig(configPath, cfg); err != nil {
 		fmt.Printf("  Error saving config: %v\n", err)
@@ -490,7 +461,7 @@ func onboard() {
 	createWorkspaceTemplates(workspace)
 	fmt.Printf("  Workspace ready: %s ✓\n", workspace)
 
-	// Start gateway in background?
+	// Start gateway?
 	fmt.Println()
 	if promptYN("  Start LuckyClaw gateway now?") {
 		gatewayStartBackground()
@@ -507,10 +478,7 @@ func onboard() {
 	fmt.Println("    luckyclaw gateway -b — Start in background")
 	fmt.Println("    luckyclaw stop       — Stop the gateway")
 	fmt.Println("    luckyclaw restart    — Restart the gateway")
-	fmt.Println("    luckyclaw agent -m   — Send a message directly")
 	fmt.Println()
-
-	_ = reader // suppress unused warning
 }
 
 // stopCmd stops the running gateway process.
