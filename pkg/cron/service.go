@@ -326,7 +326,23 @@ func (cs *CronService) loadStore() error {
 		return err
 	}
 
-	return json.Unmarshal(data, cs.store)
+	// Handle empty files gracefully (e.g. from unclean shutdown)
+	if len(data) == 0 {
+		log.Printf("[cron] store file empty, starting fresh")
+		return nil
+	}
+
+	if err := json.Unmarshal(data, cs.store); err != nil {
+		// Corrupted store — log and start fresh rather than fail
+		log.Printf("[cron] store file corrupted (%v), starting fresh", err)
+		cs.store = &CronStore{
+			Version: 1,
+			Jobs:    []CronJob{},
+		}
+		return nil
+	}
+
+	return nil
 }
 
 func (cs *CronService) saveStoreUnsafe() error {

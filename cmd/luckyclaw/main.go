@@ -10,14 +10,18 @@ import (
 	"bufio"
 	"context"
 	"embed"
+	"encoding/json"
 	"fmt"
 	"io"
 	"io/fs"
 	"net/http"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"runtime/debug"
+	"strconv"
 	"strings"
 	"time"
 
@@ -119,7 +123,22 @@ func copyDirectory(src, dst string) error {
 	})
 }
 
+// applyPerformanceDefaults sets memory-optimized Go runtime settings.
+// These are baked into the binary so users on memory-constrained devices
+// (e.g. Luckfox Pico Plus with 64MB DDR2) don't need to set env vars.
+// Env vars GOGC and GOMEMLIMIT can still override these if set.
+func applyPerformanceDefaults() {
+	if os.Getenv("GOGC") == "" {
+		debug.SetGCPercent(20)
+	}
+	if os.Getenv("GOMEMLIMIT") == "" {
+		debug.SetMemoryLimit(8 * 1024 * 1024) // 8MiB
+	}
+}
+
 func main() {
+	applyPerformanceDefaults()
+
 	if len(os.Args) < 2 {
 		printHelp()
 		os.Exit(1)
@@ -134,6 +153,10 @@ func main() {
 		agentCmd()
 	case "gateway":
 		gatewayCmd()
+	case "stop":
+		stopCmd()
+	case "restart":
+		restartCmd()
 	case "status":
 		statusCmd()
 	case "migrate":
@@ -207,43 +230,385 @@ func printHelp() {
 	fmt.Println("Commands:")
 	fmt.Println("  onboard     Initialize luckyclaw configuration and workspace")
 	fmt.Println("  agent       Interact with the agent directly")
-	fmt.Println("  auth        Manage authentication (login, logout, status)")
-	fmt.Println("  gateway     Start luckyclaw gateway")
+	fmt.Println("  gateway     Start luckyclaw gateway (-b for background)")
+	fmt.Println("  stop        Stop running gateway")
+	fmt.Println("  restart     Restart gateway (stop + start in background)")
 	fmt.Println("  status      Show luckyclaw status")
 	fmt.Println("  cron        Manage scheduled tasks")
+	fmt.Println("  auth        Manage authentication (login, logout, status)")
 	fmt.Println("  migrate     Migrate from OpenClaw to LuckyClaw")
 	fmt.Println("  skills      Manage skills (install, list, remove)")
 	fmt.Println("  version     Show version information")
 }
 
+// promptLine reads a single line from stdin with a prompt.
+func promptLine(prompt string) string {
+	reader := bufio.NewReader(os.Stdin)
+	fmt.Print(prompt)
+	line, _ := reader.ReadString('\n')
+	return strings.TrimSpace(line)
+}
+
+// promptYN asks a yes/no question, returns true for yes.
+func promptYN(prompt string) bool {
+	resp := strings.ToLower(promptLine(prompt + " (y/n): "))
+	return resp == "y" || resp == "yes"
+}
+
+// validateAPIKey tests an API key by making a simple chat completion request.
+func validateAPIKey(apiBase, apiKey, model string) error {
+	reqBody := map[string]interface{}{
+		"model": model,
+		"messages": []map[string]string{
+			{"role": "user", "content": "hi"},
+		},
+		"max_tokens": 5,
+	}
+	body, _ := json.Marshal(reqBody)
+
+	endpoint := strings.TrimRight(apiBase, "/") + "/chat/completions"
+	req, _ := http.NewRequest("POST", endpoint, strings.NewReader(string(body)))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+
+	client := &http.Client{Timeout: 15 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("connection failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == 401 {
+		return fmt.Errorf("invalid API key (401 Unauthorized)")
+	}
+	if resp.StatusCode >= 400 {
+		return fmt.Errorf("API error (HTTP %d)", resp.StatusCode)
+	}
+	return nil
+}
+
+// validateTelegramToken checks a Telegram bot token via the getMe API.
+func validateTelegramToken(token string) (string, error) {
+	resp, err := http.Get("https://api.telegram.org/bot" + token + "/getMe")
+	if err != nil {
+		return "", fmt.Errorf("connection failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	var result struct {
+		Ok     bool `json:"ok"`
+		Result struct {
+			Username string `json:"username"`
+		} `json:"result"`
+	}
+	json.NewDecoder(resp.Body).Decode(&result)
+	if !result.Ok {
+		return "", fmt.Errorf("invalid bot token")
+	}
+	return result.Result.Username, nil
+}
+
+// detectTimezone tries to auto-detect timezone via IP geolocation.
+func detectTimezone() string {
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Get("http://ip-api.com/json/?fields=timezone")
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+
+	var result struct {
+		Timezone string `json:"timezone"`
+	}
+	json.NewDecoder(resp.Body).Decode(&result)
+	return result.Timezone
+}
+
+// detectBoardModel reads the device tree model string.
+func detectBoardModel() string {
+	data, err := os.ReadFile("/proc/device-tree/model")
+	if err != nil {
+		return ""
+	}
+	return strings.TrimRight(string(data), "\x00\n")
+}
+
 func onboard() {
 	configPath := getConfigPath()
+	reader := bufio.NewReader(os.Stdin)
 
+	// Check for existing config
 	if _, err := os.Stat(configPath); err == nil {
 		fmt.Printf("Config already exists at %s\n", configPath)
-		fmt.Print("Overwrite? (y/n): ")
-		var response string
-		fmt.Scanln(&response)
-		if response != "y" {
+		if !promptYN("Overwrite?") {
 			fmt.Println("Aborted.")
 			return
 		}
 	}
 
+	fmt.Println()
+	fmt.Println("  ╔══════════════════════════════════════╗")
+	fmt.Println("  ║  🦞 LuckyClaw Setup Wizard           ║")
+	fmt.Printf("  ║  v%-35s║\n", version)
+	fmt.Println("  ╚══════════════════════════════════════╝")
+	fmt.Println()
+
+	// Step 1: Detect hardware
+	model := detectBoardModel()
+	if model != "" {
+		fmt.Printf("  Board: %s\n", model)
+	}
+	// Show memory info
+	if memOut, err := exec.Command("free", "-m").Output(); err == nil {
+		lines := strings.Split(string(memOut), "\n")
+		for _, line := range lines {
+			if strings.HasPrefix(line, "Mem:") {
+				fmt.Printf("  Memory: %s\n", strings.TrimSpace(line))
+			}
+		}
+	}
+	fmt.Println()
+
 	cfg := config.DefaultConfig()
+
+	// Step 2: API Provider (OpenRouter)
+	fmt.Println("  Step 1: API Provider")
+	fmt.Println("  ─────────────────────")
+	fmt.Println("  LuckyClaw uses OpenRouter for AI — one key, many models.")
+	fmt.Println("  Get a free API key at: https://openrouter.ai/keys")
+	fmt.Println()
+
+	apiKey := promptLine("  OpenRouter API Key (or Enter to skip): ")
+
+	cfg.Agents.Defaults.Provider = "openrouter"
+	cfg.Agents.Defaults.Model = "google/gemini-2.0-flash-exp:free"
+	cfg.Agents.Defaults.MaxTokens = 4096
+	cfg.Agents.Defaults.MaxToolIterations = 10
+	cfg.Providers.OpenRouter.APIBase = "https://openrouter.ai/api/v1"
+
+	if apiKey != "" {
+		cfg.Providers.OpenRouter.APIKey = apiKey
+
+		// Validate
+		fmt.Print("  Validating API key... ")
+		if err := validateAPIKey(cfg.Providers.OpenRouter.APIBase, apiKey, cfg.Agents.Defaults.Model); err != nil {
+			fmt.Printf("⚠ %v\n", err)
+			fmt.Println("  (Key saved anyway — you can fix it in config.json)")
+		} else {
+			fmt.Println("✓")
+		}
+	} else {
+		fmt.Println("  Skipped — edit ~/.luckyclaw/config.json later.")
+	}
+
+	// Custom model?
+	fmt.Printf("  Default model: %s\n", cfg.Agents.Defaults.Model)
+	if customModel := promptLine("  Custom model (or Enter to keep): "); customModel != "" {
+		cfg.Agents.Defaults.Model = customModel
+	}
+
+	// Step 3: Timezone
+	fmt.Println()
+	fmt.Println("  Step 2: Timezone")
+	fmt.Println("  ─────────────────")
+	detectedTZ := detectTimezone()
+	if detectedTZ != "" {
+		fmt.Printf("  Detected: %s\n", detectedTZ)
+		if !promptYN("  Use this timezone?") {
+			detectedTZ = promptLine("  Enter timezone (e.g. America/New_York): ")
+		}
+	} else {
+		fmt.Println("  Could not auto-detect timezone.")
+		detectedTZ = promptLine("  Enter timezone (e.g. America/New_York): ")
+	}
+	if detectedTZ != "" {
+		os.Setenv("TZ", detectedTZ)
+		// Persist to /etc/profile if we have permission
+		profileEntry := fmt.Sprintf("export TZ='%s'\n", detectedTZ)
+		if f, err := os.OpenFile("/etc/profile.d/timezone.sh", os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644); err == nil {
+			f.WriteString(profileEntry)
+			f.Close()
+			fmt.Printf("  Timezone set: %s ✓\n", detectedTZ)
+		} else {
+			// Non-root — just set env
+			fmt.Printf("  Timezone set for this session: %s\n", detectedTZ)
+		}
+	}
+
+	// Step 4: Messaging channel
+	fmt.Println()
+	fmt.Println("  Step 3: Messaging Channel")
+	fmt.Println("  ──────────────────────────")
+	fmt.Println("  [1] Telegram")
+	fmt.Println("  [2] Skip (more channels coming soon: Discord, WhatsApp, Slack)")
+	fmt.Println()
+
+	channelChoice := promptLine("  Choose channel [2]: ")
+	if channelChoice == "" {
+		channelChoice = "2"
+	}
+
+	if channelChoice == "1" {
+		fmt.Println()
+		fmt.Println("  To create a Telegram bot:")
+		fmt.Println("  1. Message @BotFather on Telegram")
+		fmt.Println("  2. Send /newbot and follow the prompts")
+		fmt.Println("  3. Copy the bot token")
+		fmt.Println()
+
+		tgToken := promptLine("  Bot token: ")
+		if tgToken != "" {
+			fmt.Print("  Validating token... ")
+			username, err := validateTelegramToken(tgToken)
+			if err != nil {
+				fmt.Printf("⚠ %v\n", err)
+				fmt.Println("  (Token saved anyway — check it later)")
+			} else {
+				fmt.Printf("✓ @%s\n", username)
+			}
+
+			cfg.Channels.Telegram.Enabled = true
+			cfg.Channels.Telegram.Token = tgToken
+
+			tgUserID := promptLine("  Your Telegram user ID (optional, for access control): ")
+			if tgUserID != "" {
+				cfg.Channels.Telegram.AllowFrom = config.FlexibleStringSlice{tgUserID}
+			}
+		}
+	}
+
+	// Save config
+	fmt.Println()
 	if err := config.SaveConfig(configPath, cfg); err != nil {
-		fmt.Printf("Error saving config: %v\n", err)
+		fmt.Printf("  Error saving config: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Printf("  Config saved: %s ✓\n", configPath)
+
+	// Create workspace
+	workspace := cfg.WorkspacePath()
+	createWorkspaceTemplates(workspace)
+	fmt.Printf("  Workspace ready: %s ✓\n", workspace)
+
+	// Start gateway in background?
+	fmt.Println()
+	if promptYN("  Start LuckyClaw gateway now?") {
+		gatewayStartBackground()
+	}
+
+	fmt.Println()
+	fmt.Println("  ╔══════════════════════════════════════╗")
+	fmt.Println("  ║  🦞 LuckyClaw is ready!               ║")
+	fmt.Println("  ╚══════════════════════════════════════╝")
+	fmt.Println()
+	fmt.Println("  Commands:")
+	fmt.Println("    luckyclaw status     — Check system status")
+	fmt.Println("    luckyclaw gateway    — Start the gateway")
+	fmt.Println("    luckyclaw gateway -b — Start in background")
+	fmt.Println("    luckyclaw stop       — Stop the gateway")
+	fmt.Println("    luckyclaw restart    — Restart the gateway")
+	fmt.Println("    luckyclaw agent -m   — Send a message directly")
+	fmt.Println()
+
+	_ = reader // suppress unused warning
+}
+
+// stopCmd stops the running gateway process.
+func stopCmd() {
+	// Try PID file first
+	pidFile := "/var/run/luckyclaw.pid"
+	pidData, err := os.ReadFile(pidFile)
+	if err == nil {
+		pidStr := strings.TrimSpace(string(pidData))
+		pid, err := strconv.Atoi(pidStr)
+		if err == nil {
+			proc, err := os.FindProcess(pid)
+			if err == nil {
+				if err := proc.Signal(os.Interrupt); err == nil {
+					fmt.Printf("🦞 Stopping LuckyClaw (PID %d)...\n", pid)
+					time.Sleep(2 * time.Second)
+					os.Remove(pidFile)
+					fmt.Println("✓ Stopped")
+					return
+				}
+			}
+		}
+	}
+
+	// Fallback: find by process name
+	out, err := exec.Command("pidof", "luckyclaw").Output()
+	if err != nil {
+		fmt.Println("LuckyClaw is not running.")
+		return
+	}
+
+	myPid := os.Getpid()
+	for _, pidStr := range strings.Fields(string(out)) {
+		pid, err := strconv.Atoi(pidStr)
+		if err != nil || pid == myPid {
+			continue
+		}
+		proc, err := os.FindProcess(pid)
+		if err == nil {
+			fmt.Printf("🦞 Stopping LuckyClaw (PID %d)...\n", pid)
+			proc.Signal(os.Interrupt)
+		}
+	}
+	time.Sleep(2 * time.Second)
+	os.Remove(pidFile)
+	fmt.Println("✓ Stopped")
+}
+
+// restartCmd stops and restarts the gateway in background mode.
+func restartCmd() {
+	stopCmd()
+	fmt.Println()
+	gatewayStartBackground()
+}
+
+// gatewayStartBackground starts the gateway as a background process.
+func gatewayStartBackground() {
+	exePath, err := os.Executable()
+	if err != nil {
+		fmt.Printf("Error finding executable: %v\n", err)
 		os.Exit(1)
 	}
 
-	workspace := cfg.WorkspacePath()
-	createWorkspaceTemplates(workspace)
+	logFile := "/var/log/luckyclaw.log"
+	f, err := os.OpenFile(logFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		// Fallback to /tmp if no write permission
+		logFile = "/tmp/luckyclaw.log"
+		f, err = os.OpenFile(logFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		if err != nil {
+			fmt.Printf("Error opening log file: %v\n", err)
+			os.Exit(1)
+		}
+	}
 
-	fmt.Printf("%s luckyclaw is ready!\n", logo)
-	fmt.Println("\nNext steps:")
-	fmt.Println("  1. Add your API key to", configPath)
-	fmt.Println("     Get one at: https://openrouter.ai/keys")
-	fmt.Println("  2. Chat: luckyclaw agent -m \"Hello!\"")
+	cmd := exec.Command(exePath, "gateway")
+	cmd.Stdout = f
+	cmd.Stderr = f
+	cmd.Stdin = nil
+
+	if err := cmd.Start(); err != nil {
+		fmt.Printf("Error starting gateway: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Write PID file
+	pidFile := "/var/run/luckyclaw.pid"
+	if pf, err := os.Create(pidFile); err == nil {
+		fmt.Fprintf(pf, "%d", cmd.Process.Pid)
+		pf.Close()
+	}
+
+	cmd.Process.Release()
+	f.Close()
+
+	fmt.Printf("🦞 LuckyClaw started in background (PID %d)\n", cmd.Process.Pid)
+	fmt.Printf("   Log: %s\n", logFile)
+	fmt.Println("   Use 'luckyclaw stop' to stop or 'luckyclaw restart' to restart")
 }
 
 func copyEmbeddedToTarget(targetDir string) error {
@@ -518,13 +883,16 @@ func simpleInteractiveMode(agentLoop *agent.AgentLoop, sessionKey string) {
 }
 
 func gatewayCmd() {
-	// Check for --debug flag
+	// Check for flags
 	args := os.Args[2:]
 	for _, arg := range args {
 		if arg == "--debug" || arg == "-d" {
 			logger.SetLevel(logger.DEBUG)
 			fmt.Println("🔍 Debug mode enabled")
-			break
+		}
+		if arg == "-b" || arg == "--background" {
+			gatewayStartBackground()
+			return
 		}
 	}
 
@@ -689,78 +1057,150 @@ func gatewayCmd() {
 }
 
 func statusCmd() {
+	configPath := getConfigPath()
+
+	fmt.Println()
+	fmt.Printf("  %s LuckyClaw Status\n", logo)
+	fmt.Printf("  Version: %s\n", formatVersion())
+	build, _ := formatBuildInfo()
+	if build != "" {
+		fmt.Printf("  Build: %s\n", build)
+	}
+
+	// Device info
+	model := detectBoardModel()
+	if model != "" {
+		fmt.Printf("  Board: %s\n", model)
+	}
+	if uptimeOut, err := exec.Command("uptime", "-p").Output(); err == nil {
+		fmt.Printf("  Uptime: %s", strings.TrimSpace(string(uptimeOut)))
+		fmt.Println()
+	}
+
+	// Memory
+	if memData, err := os.ReadFile("/proc/meminfo"); err == nil {
+		lines := strings.Split(string(memData), "\n")
+		var total, avail int
+		for _, line := range lines {
+			if strings.HasPrefix(line, "MemTotal:") {
+				fmt.Sscanf(line, "MemTotal: %d", &total)
+			}
+			if strings.HasPrefix(line, "MemAvailable:") {
+				fmt.Sscanf(line, "MemAvailable: %d", &avail)
+			}
+		}
+		if total > 0 {
+			fmt.Printf("  Memory: %dMB / %dMB available\n", avail/1024, total/1024)
+		}
+	}
+
+	// Gateway process status
+	fmt.Println()
+	if pidOut, err := exec.Command("pidof", "luckyclaw").Output(); err == nil {
+		pids := strings.Fields(strings.TrimSpace(string(pidOut)))
+		// Exclude our own PID
+		myPid := fmt.Sprintf("%d", os.Getpid())
+		for _, pid := range pids {
+			if pid != myPid {
+				fmt.Printf("  Gateway: running (PID %s)", pid)
+				// Get RSS
+				if statData, err := os.ReadFile(fmt.Sprintf("/proc/%s/status", pid)); err == nil {
+					for _, line := range strings.Split(string(statData), "\n") {
+						if strings.HasPrefix(line, "VmRSS:") {
+							var rss int
+							fmt.Sscanf(line, "VmRSS: %d", &rss)
+							fmt.Printf(" — %dMB RSS", rss/1024)
+						}
+					}
+				}
+				fmt.Println()
+				break
+			}
+		}
+	} else {
+		fmt.Println("  Gateway: stopped")
+	}
+
+	// Config status
+	fmt.Println()
 	cfg, err := loadConfig()
 	if err != nil {
-		fmt.Printf("Error loading config: %v\n", err)
+		fmt.Println("  Config:", configPath, "✗ (not found — run: luckyclaw onboard)")
 		return
 	}
 
-	configPath := getConfigPath()
-
-	fmt.Printf("%s luckyclaw Status\n", logo)
-	fmt.Printf("Version: %s\n", formatVersion())
-	build, _ := formatBuildInfo()
-	if build != "" {
-		fmt.Printf("Build: %s\n", build)
-	}
-	fmt.Println()
-
-	if _, err := os.Stat(configPath); err == nil {
-		fmt.Println("Config:", configPath, "✓")
-	} else {
-		fmt.Println("Config:", configPath, "✗")
-	}
-
+	fmt.Println("  Config:", configPath, "✓")
 	workspace := cfg.WorkspacePath()
 	if _, err := os.Stat(workspace); err == nil {
-		fmt.Println("Workspace:", workspace, "✓")
+		fmt.Println("  Workspace:", workspace, "✓")
 	} else {
-		fmt.Println("Workspace:", workspace, "✗")
+		fmt.Println("  Workspace:", workspace, "✗")
 	}
 
-	if _, err := os.Stat(configPath); err == nil {
-		fmt.Printf("Model: %s\n", cfg.Agents.Defaults.Model)
+	// Provider status
+	fmt.Println()
+	fmt.Printf("  Model: %s\n", cfg.Agents.Defaults.Model)
+	if cfg.Agents.Defaults.Provider != "" {
+		fmt.Printf("  Provider: %s\n", cfg.Agents.Defaults.Provider)
+	}
 
-		hasOpenRouter := cfg.Providers.OpenRouter.APIKey != ""
-		hasAnthropic := cfg.Providers.Anthropic.APIKey != ""
-		hasOpenAI := cfg.Providers.OpenAI.APIKey != ""
-		hasGemini := cfg.Providers.Gemini.APIKey != ""
-		hasZhipu := cfg.Providers.Zhipu.APIKey != ""
-		hasGroq := cfg.Providers.Groq.APIKey != ""
-		hasVLLM := cfg.Providers.VLLM.APIBase != ""
+	hasOpenRouter := cfg.Providers.OpenRouter.APIKey != ""
+	hasAnthropic := cfg.Providers.Anthropic.APIKey != ""
+	hasOpenAI := cfg.Providers.OpenAI.APIKey != ""
+	hasGemini := cfg.Providers.Gemini.APIKey != ""
+	hasGroq := cfg.Providers.Groq.APIKey != ""
 
-		status := func(enabled bool) string {
-			if enabled {
-				return "✓"
-			}
-			return "not set"
+	statusStr := func(enabled bool) string {
+		if enabled {
+			return "✓"
 		}
-		fmt.Println("OpenRouter API:", status(hasOpenRouter))
-		fmt.Println("Anthropic API:", status(hasAnthropic))
-		fmt.Println("OpenAI API:", status(hasOpenAI))
-		fmt.Println("Gemini API:", status(hasGemini))
-		fmt.Println("Zhipu API:", status(hasZhipu))
-		fmt.Println("Groq API:", status(hasGroq))
-		if hasVLLM {
-			fmt.Printf("vLLM/Local: ✓ %s\n", cfg.Providers.VLLM.APIBase)
-		} else {
-			fmt.Println("vLLM/Local: not set")
-		}
+		return "—"
+	}
 
-		store, _ := auth.LoadStore()
-		if store != nil && len(store.Credentials) > 0 {
-			fmt.Println("\nOAuth/Token Auth:")
-			for provider, cred := range store.Credentials {
-				status := "authenticated"
-				if cred.IsExpired() {
-					status = "expired"
-				} else if cred.NeedsRefresh() {
-					status = "needs refresh"
-				}
-				fmt.Printf("  %s (%s): %s\n", provider, cred.AuthMethod, status)
-			}
+	activeProviders := []struct {
+		name string
+		set  bool
+	}{
+		{"OpenRouter", hasOpenRouter},
+		{"OpenAI", hasOpenAI},
+		{"Anthropic", hasAnthropic},
+		{"Gemini", hasGemini},
+		{"Groq", hasGroq},
+	}
+
+	for _, p := range activeProviders {
+		if p.set {
+			fmt.Printf("  %s: %s\n", p.name, statusStr(p.set))
 		}
 	}
+
+	// Channel status
+	fmt.Println()
+	if cfg.Channels.Telegram.Enabled {
+		fmt.Println("  Telegram: enabled ✓")
+	}
+	if cfg.Channels.Discord.Enabled {
+		fmt.Println("  Discord: enabled ✓")
+	}
+	if !cfg.Channels.Telegram.Enabled && !cfg.Channels.Discord.Enabled {
+		fmt.Println("  Channels: none enabled")
+	}
+
+	store, _ := auth.LoadStore()
+	if store != nil && len(store.Credentials) > 0 {
+		fmt.Println()
+		fmt.Println("  OAuth/Token Auth:")
+		for provider, cred := range store.Credentials {
+			status := "authenticated"
+			if cred.IsExpired() {
+				status = "expired"
+			} else if cred.NeedsRefresh() {
+				status = "needs refresh"
+			}
+			fmt.Printf("    %s (%s): %s\n", provider, cred.AuthMethod, status)
+		}
+	}
+	fmt.Println()
 }
 
 func authCmd() {
