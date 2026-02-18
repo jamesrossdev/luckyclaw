@@ -222,7 +222,7 @@ func DefaultConfig() *Config {
 				Workspace:           "~/.luckyclaw/workspace",
 				RestrictToWorkspace: true,
 				Provider:            "openrouter",
-				Model:               "nvidia/nemotron-3-nano-30b-a3b:free",
+				Model:               "arcee-ai/trinity-large-preview:free",
 				MaxTokens:           4096,
 				Temperature:         0.7,
 				MaxToolIterations:   10,
