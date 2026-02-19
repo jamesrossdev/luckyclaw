@@ -8,12 +8,12 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/open-dingtalk/dingtalk-stream-sdk-go/chatbot"
-	"github.com/open-dingtalk/dingtalk-stream-sdk-go/client"
 	"github.com/jamesrossdev/luckyclaw/pkg/bus"
 	"github.com/jamesrossdev/luckyclaw/pkg/config"
 	"github.com/jamesrossdev/luckyclaw/pkg/logger"
 	"github.com/jamesrossdev/luckyclaw/pkg/utils"
+	"github.com/open-dingtalk/dingtalk-stream-sdk-go/chatbot"
+	"github.com/open-dingtalk/dingtalk-stream-sdk-go/client"
 )
 
 // DingTalkChannel implements the Channel interface for DingTalk (钉钉)

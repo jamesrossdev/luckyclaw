@@ -157,6 +157,11 @@ func (c *TelegramChannel) Send(ctx context.Context, msg bus.OutboundMessage) err
 		c.stopThinking.Delete(msg.ChatID)
 	}
 
+	// Handle file attachment
+	if msg.FilePath != "" {
+		return c.sendDocument(ctx, chatID, msg.FilePath, msg.Content)
+	}
+
 	htmlContent := markdownToTelegramHTML(msg.Content)
 
 	// Try to edit placeholder
@@ -183,6 +188,30 @@ func (c *TelegramChannel) Send(ctx context.Context, msg bus.OutboundMessage) err
 		return err
 	}
 
+	return nil
+}
+
+func (c *TelegramChannel) sendDocument(ctx context.Context, chatID int64, filePath, caption string) error {
+	file, err := os.Open(filePath)
+	if err != nil {
+		return fmt.Errorf("failed to open file %s: %w", filePath, err)
+	}
+	defer file.Close()
+
+	doc := tu.Document(tu.ID(chatID), telego.InputFile{File: file})
+	if caption != "" {
+		doc.Caption = caption
+	}
+
+	_, err = c.bot.SendDocument(ctx, doc)
+	if err != nil {
+		return fmt.Errorf("failed to send document: %w", err)
+	}
+
+	logger.InfoCF("telegram", "Document sent", map[string]interface{}{
+		"file": filePath,
+		"chat": chatID,
+	})
 	return nil
 }
 

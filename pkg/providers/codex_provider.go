@@ -7,11 +7,11 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/jamesrossdev/luckyclaw/pkg/auth"
+	"github.com/jamesrossdev/luckyclaw/pkg/logger"
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"
 	"github.com/openai/openai-go/v3/responses"
-	"github.com/jamesrossdev/luckyclaw/pkg/auth"
-	"github.com/jamesrossdev/luckyclaw/pkg/logger"
 )
 
 const codexDefaultModel = "gpt-5.2"

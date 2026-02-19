@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/mymmrac/telego"
 	"github.com/jamesrossdev/luckyclaw/pkg/config"
+	"github.com/mymmrac/telego"
 )
 
 type TelegramCommander interface {

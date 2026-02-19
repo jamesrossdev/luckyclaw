@@ -225,7 +225,7 @@ func DefaultConfig() *Config {
 				Model:               "arcee-ai/trinity-large-preview:free",
 				MaxTokens:           4096,
 				Temperature:         0.7,
-				MaxToolIterations:   10,
+				MaxToolIterations:   12,
 			},
 		},
 		Channels: ChannelsConfig{

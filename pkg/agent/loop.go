@@ -101,6 +101,19 @@ func createToolRegistry(workspace string, restrict bool, cfg *config.Config, msg
 	})
 	registry.Register(messageTool)
 
+	// Send file tool - sends files as Telegram attachments
+	sendFileTool := tools.NewSendFileTool()
+	sendFileTool.SetSendCallback(func(channel, chatID, filePath, caption string) error {
+		msgBus.PublishOutbound(bus.OutboundMessage{
+			Channel:  channel,
+			ChatID:   chatID,
+			Content:  caption,
+			FilePath: filePath,
+		})
+		return nil
+	})
+	registry.Register(sendFileTool)
+
 	return registry
 }
 
@@ -135,6 +148,7 @@ func NewAgentLoop(cfg *config.Config, msgBus *bus.MessageBus, provider providers
 	// Create context builder and set tools registry
 	contextBuilder := NewContextBuilder(workspace)
 	contextBuilder.SetToolsRegistry(toolsRegistry)
+	contextBuilder.SetMaxIterations(cfg.Agents.Defaults.MaxToolIterations)
 
 	return &AgentLoop{
 		bus:            msgBus,
@@ -705,6 +719,11 @@ func (al *AgentLoop) updateToolContexts(channel, chatID string) {
 	if tool, ok := al.tools.Get("message"); ok {
 		if mt, ok := tool.(tools.ContextualTool); ok {
 			mt.SetContext(channel, chatID)
+		}
+	}
+	if tool, ok := al.tools.Get("send_file"); ok {
+		if ft, ok := tool.(tools.ContextualTool); ok {
+			ft.SetContext(channel, chatID)
 		}
 	}
 	if tool, ok := al.tools.Get("spawn"); ok {

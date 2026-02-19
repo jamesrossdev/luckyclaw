@@ -15,10 +15,11 @@ import (
 )
 
 type ContextBuilder struct {
-	workspace    string
-	skillsLoader *skills.SkillsLoader
-	memory       *MemoryStore
-	tools        *tools.ToolRegistry // Direct reference to tool registry
+	workspace     string
+	skillsLoader  *skills.SkillsLoader
+	memory        *MemoryStore
+	tools         *tools.ToolRegistry // Direct reference to tool registry
+	maxIterations int                 // Max tool iterations per message
 }
 
 func getGlobalConfigDir() string {
@@ -48,13 +49,44 @@ func (cb *ContextBuilder) SetToolsRegistry(registry *tools.ToolRegistry) {
 	cb.tools = registry
 }
 
+// SetMaxIterations sets the max tool iterations budget for the system prompt.
+func (cb *ContextBuilder) SetMaxIterations(n int) {
+	cb.maxIterations = n
+}
+
 func (cb *ContextBuilder) getIdentity() string {
-	now := time.Now().Format("2006-01-02 15:04 (Monday)")
+	// Format time with timezone name
+	now := time.Now()
+	timeStr := now.Format("2006-01-02 15:04 (Monday)")
+	tzName := os.Getenv("TZ")
+	if tzName == "" {
+		tzName, _ = now.Zone()
+	}
+	_, offset := now.Zone()
+	offsetHours := offset / 3600
+	offsetSign := "+"
+	if offsetHours < 0 {
+		offsetSign = "-"
+		offsetHours = -offsetHours
+	}
+	timeStr = fmt.Sprintf("%s — %s (UTC%s%d)", timeStr, tzName, offsetSign, offsetHours)
+
 	workspacePath, _ := filepath.Abs(filepath.Join(cb.workspace))
-	runtime := fmt.Sprintf("%s %s, Go %s", runtime.GOOS, runtime.GOARCH, runtime.Version())
+	rt := fmt.Sprintf("%s %s, Go %s", runtime.GOOS, runtime.GOARCH, runtime.Version())
 
 	// Build tools section dynamically
 	toolsSection := cb.buildToolsSection()
+
+	// Iteration budget
+	iterBudget := ""
+	if cb.maxIterations > 0 {
+		iterBudget = fmt.Sprintf(`
+
+## Constraints
+- You have a maximum of %d tool iterations per message. Budget them wisely.
+- Always reserve at least 1 iteration for your final text response to the user.
+- If running low on iterations, stop using tools and summarize what you have so far.`, cb.maxIterations)
+	}
 
 	return fmt.Sprintf(`# luckyclaw 🦞
 
@@ -80,8 +112,8 @@ Your workspace is at: %s
 
 2. **Be helpful and accurate** - When using tools, briefly explain what you're doing.
 
-3. **Memory** - When remembering something, write to %s/memory/MEMORY.md`,
-		now, runtime, workspacePath, workspacePath, workspacePath, workspacePath, toolsSection, workspacePath)
+3. **Memory** - When remembering something, write to %s/memory/MEMORY.md%s`,
+		timeStr, rt, workspacePath, workspacePath, workspacePath, workspacePath, toolsSection, workspacePath, iterBudget)
 }
 
 func (cb *ContextBuilder) buildToolsSection() string {

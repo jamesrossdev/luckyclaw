@@ -28,7 +28,7 @@ type Options struct {
 	Force         bool
 	Refresh       bool
 	OpenClawHome  string
-	LuckyClawHome  string
+	LuckyClawHome string
 }
 
 type Action struct {
