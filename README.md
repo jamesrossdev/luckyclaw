@@ -264,11 +264,19 @@ cd luckyclaw
 # Build for your local machine
 make build
 
-# Cross-compile for Luckfox Pico (ARM)
-GOOS=linux GOARCH=arm GOARM=7 CGO_ENABLED=0 go build \
-  -ldflags "-s -w -X main.version=$(git describe --tags --always)" \
-  -o build/luckyclaw-linux-arm ./cmd/luckyclaw
+# Cross-compile for Luckfox Pico (ARMv7)
+make build-arm
 ```
+
+### Development Workflow
+
+Keep the codebase clean using the integrated Makefile targets:
+
+- `make fmt` — Format Go code
+- `make vet` — Run static analysis
+- `make test` — Run unit tests
+- `make check` — Run all of the above (recommended before committing)
+- `make clean` — Remove build artifacts
 
 ### Build firmware image
 
@@ -288,21 +296,16 @@ firmware/overlay/
 
 To build a firmware image:
 
-```bash
-# 1. Clone the Luckfox Pico SDK (if not already done)
-git clone https://github.com/LuckfoxTECH/luckfox-pico.git luckfox-pico-sdk
-
-# 2. Copy the overlay into the SDK
-cp -r firmware/overlay/* luckfox-pico-sdk/project/cfg/BoardConfig_IPC/overlay/luckyclaw-overlay/
-
-# 3. Copy the ARM binary
-cp build/luckyclaw-linux-arm luckfox-pico-sdk/project/cfg/BoardConfig_IPC/overlay/luckyclaw-overlay/usr/local/bin/luckyclaw
-
-# 4. Build the firmware (uses the SDK's build system)
-cd luckfox-pico-sdk
-./build.sh lunch   # Select your board config
-./build.sh
-```
+1. **Build the ARM binary**: `make build-arm`
+2. **Clone the SDK**: `git clone https://github.com/LuckfoxTECH/luckfox-pico.git luckfox-pico-sdk`
+3. **Copy overlay**: `cp -r firmware/overlay/* luckfox-pico-sdk/project/cfg/BoardConfig_IPC/overlay/luckyclaw-overlay/`
+4. **Copy binary**: `cp build/luckyclaw-linux-arm luckfox-pico-sdk/project/cfg/BoardConfig_IPC/overlay/luckyclaw-overlay/usr/local/bin/luckyclaw`
+5. **Build image**:
+   ```bash
+   cd luckfox-pico-sdk
+   ./build.sh lunch   # Select your board config
+   ./build.sh
+   ```
 
 The firmware image will be in `luckfox-pico-sdk/output/image/`.
 
@@ -310,19 +313,18 @@ The firmware image will be in `luckfox-pico-sdk/output/image/`.
 
 ```
 luckyclaw/
-├── cmd/luckyclaw/main.go    # Entry point, CLI commands, onboarding wizard
+├── cmd/luckyclaw/main.go    # Entry point, CLI, and onboarding wizard
 ├── pkg/
-│   ├── agent/               # AI agent loop
-│   ├── channels/            # Telegram, Discord, etc.
-│   ├── config/              # Configuration management
-│   ├── cron/                # Scheduled tasks
-│   ├── heartbeat/           # Periodic tasks
-│   ├── providers/           # LLM providers (OpenRouter, OpenAI, etc.)
-│   ├── tools/               # Agent tools (shell, file, i2c, spi)
+│   ├── agent/               # Core agent loop and context builder
+│   ├── bus/                 # Internal message bus
+│   ├── channels/            # Telegram, Discord, and other messaging integrations
+│   ├── config/              # Configuration and system settings
+│   ├── providers/           # LLM provider implementations (OpenRouter, etc.)
+│   ├── tools/               # Agent tools (shell, file, i2c, spi, send_file)
 │   └── ...
-├── firmware/                # SDK overlay files for firmware builds
-├── workspace/               # Default workspace templates
-└── assets/                  # Images and media
+├── firmware/                # SDK overlay files and init scripts
+├── workspace/               # Default templates for the agent workspace
+└── assets/                  # Documentation images and media
 ```
 
 ### Performance tuning
