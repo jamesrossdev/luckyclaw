@@ -21,5 +21,8 @@ jobs:
           make fmt
           git diff --exit-code || (echo "::error::Code is not formatted. Run 'make fmt' and commit the changes." && exit 1)
 
+      - name: vet
+        run: make vet
+
       - name: Build
         run: make build-all

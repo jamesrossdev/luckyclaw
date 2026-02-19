@@ -6,7 +6,7 @@
   <h3>One-stop AI firmware for Luckfox Pico boards</h3>
 
   <p>
-    <img src="https://img.shields.io/badge/Go-1.21+-00ADD8?style=flat&logo=go&logoColor=white" alt="Go">
+    <img src="https://img.shields.io/badge/Go-1.22+-00ADD8?style=flat&logo=go&logoColor=white" alt="Go">
     <img src="https://img.shields.io/badge/Board-Luckfox_Pico-orange" alt="Board">
     <img src="https://img.shields.io/badge/license-MIT-green" alt="License">
   </p>
@@ -23,6 +23,9 @@ LuckyClaw is a purpose-built AI assistant for [Luckfox Pico](https://wiki.luckfo
 - 🧠 **Memory-optimized** — GOGC and GOMEMLIMIT baked into the binary for 64MB boards
 - 📟 **SSH banner** — See gateway status and available commands on login
 - 🦞 **Board-aware** — Detects Luckfox Pico model, shows board-specific info in `status`
+- 🌍 **Timezone-aware** — Embedded timezone database, correct local time on any board
+- 📎 **File attachments** — Send files directly to Telegram via the `send_file` tool
+- ⚡ **Iteration budgeting** — Agent knows its tool limits, reserves capacity for responses
 
 > [!NOTE]
 > LuckyClaw is built on top of [PicoClaw](https://github.com/sipeed/picoclaw) by [Sipeed](https://sipeed.com). All credit for the core AI agent engine goes to the PicoClaw team and the original [nanobot](https://github.com/HKUDS/nanobot) project.
@@ -43,28 +46,34 @@ Flash to your Luckfox Pico board using the [Luckfox flashing tool](https://wiki.
 ### 2. Connect via SSH
 
 ```bash
-ssh root@192.168.1.175
-# Password: luckfox
+ssh root@<IP>
+# Default password: luckfox
 ```
+
+> [!TIP]
+> The device IP depends on your network. Connect the board via USB-C or Ethernet and check your router's DHCP leases, or use `arp -a | grep luckfox` to find it.
 
 You'll see the LuckyClaw banner:
 
 ```
-  _               _          ____ _
- | |   _   _  ___| | __   / ___| | __ ___      __
- | |  | | | |/ __| |/ / | |   | |/ _` \ \ /\ / /
- | |__| |_| | (__|   <| |_| |___| | (_| |\ V  V /
- |_____\__,_|\___|_|\_\__, \___|_|\__,_| \_/\_/
-                       |___/
-  🦞 luckyclaw v0.2.1
+ _               _           ____ _
+| |   _   _  ___| | ___   _ / ___| | __ ___      __
+| |  | | | |/ __| |/ / | | | |   | |/ _` \ \ /\ / /
+| |__| |_| | (__|   <| |_| | |___| | (_| |\ V  V /
+|_____\__,_|\___|_|\_\\__, |\____|_|\__,_| \_/\_/
+                      |___/
+  🦞 luckyclaw v0.3.3
 
-  Gateway: stopped
-  Memory:  16MB / 32MB available
+  Gateway: running (PID 1234, 15MB)
+  Memory:  33MB / 55MB available
 
   Commands:
-    luckyclaw status    — System status
-    luckyclaw onboard   — Setup wizard
-    luckyclaw gateway   — Start AI gateway
+    luckyclaw status      — System status
+    luckyclaw onboard     — Setup wizard
+    luckyclaw gateway     — Start AI gateway
+    luckyclaw gateway -b  — Start in background
+    luckyclaw stop        — Stop gateway
+    luckyclaw restart     — Restart gateway
 ```
 
 ### 3. Run the setup wizard
@@ -242,7 +251,7 @@ To allow system-wide access (use with caution):
 
 ### Prerequisites
 
-- Go 1.21+
+- Go 1.22+
 - [Luckfox Pico SDK](https://github.com/LuckfoxTECH/luckfox-pico) (for firmware builds)
 - ARM cross-compilation toolchain (included in the SDK)
 
@@ -326,7 +335,7 @@ LuckyClaw automatically sets `GOGC=20` and `GOMEMLIMIT=8MiB` at startup for memo
 
 ### Gateway keeps getting killed (OOM)
 
-LuckyClaw v0.2+ automatically caps memory usage. If you're on an older version, set:
+LuckyClaw v0.2+ automatically caps memory usage. If you're on an older version or running on a custom board, set:
 
 ```bash
 export GOGC=20
@@ -355,18 +364,18 @@ Look for `✓ Cron service started`. If missing, the jobs.json file may be corru
 
 ### Time is wrong
 
-LuckyClaw uses NTP for time sync. If the time is wrong:
+LuckyClaw v0.3.3+ embeds its own timezone database and sets the timezone during onboarding. If the time is still wrong:
 
-```bash
-ntpd -p pool.ntp.org
-date
-```
+1. **System clock**: Sync via NTP:
+   ```bash
+   ntpd -p pool.ntp.org && date
+   ```
 
-Set timezone during `luckyclaw onboard` or manually:
-
-```bash
-export TZ=Africa/Nairobi  # or your timezone
-```
+2. **Timezone**: Re-run onboarding or set manually:
+   ```bash
+   echo "export TZ='Africa/Nairobi'" > /etc/profile.d/timezone.sh
+   ```
+   Then restart the gateway: `luckyclaw restart`
 
 ---
 

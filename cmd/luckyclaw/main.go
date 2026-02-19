@@ -460,6 +460,16 @@ func onboard() {
 	// Create workspace
 	workspace := cfg.WorkspacePath()
 	createWorkspaceTemplates(workspace)
+
+	// Patch USER.md with selected timezone
+	if detectedTZ != "" {
+		userMD := filepath.Join(workspace, "USER.md")
+		if data, err := os.ReadFile(userMD); err == nil {
+			patched := strings.Replace(string(data), "(set during onboarding)", detectedTZ, 1)
+			os.WriteFile(userMD, []byte(patched), 0644)
+		}
+	}
+
 	fmt.Printf("  Workspace ready: %s ✓\n", workspace)
 
 	// Start gateway?

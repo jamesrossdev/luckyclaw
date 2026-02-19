@@ -1,21 +1,16 @@
 # User
 
-Information about user goes here.
-
 ## Preferences
 
-- Communication style: (casual/formal)
-- Timezone: (your timezone)
-- Language: (your preferred language)
+- Communication style: casual
+- Timezone: (set during onboarding)
+- Language: English
 
 ## Personal Information
 
-- Name: (optional)
+- Name: (optional — tell the assistant your name)
 - Location: (optional)
-- Occupation: (optional)
 
-## Learning Goals
+## Notes
 
-- What the user wants to learn from AI
-- Preferred interaction style
-- Areas of interest
+Add any personal preferences or context you'd like the assistant to remember.
