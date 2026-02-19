@@ -127,11 +127,11 @@ clean:
 	@echo "Clean complete"
 
 ## vet: Run go vet for static analysis
-vet:
+vet: generate
 	@$(GO) vet ./cmd/... ./pkg/...
 
-## fmt: Format Go code
-test:
+## test: Run unit tests
+test: generate
 	@$(GO) test ./cmd/... ./pkg/...
 
 ## fmt: Format Go code
