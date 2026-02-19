@@ -55,13 +55,18 @@ func (cb *ContextBuilder) SetMaxIterations(n int) {
 }
 
 func (cb *ContextBuilder) getIdentity() string {
-	// Format time with timezone name
-	now := time.Now()
-	timeStr := now.Format("2006-01-02 15:04 (Monday)")
+	// Resolve timezone: Go's embedded zoneinfo works even without /usr/share/zoneinfo
 	tzName := os.Getenv("TZ")
+	now := time.Now()
+	if tzName != "" {
+		if loc, err := time.LoadLocation(tzName); err == nil {
+			now = now.In(loc)
+		}
+	}
 	if tzName == "" {
 		tzName, _ = now.Zone()
 	}
+	timeStr := now.Format("2006-01-02 15:04 (Monday)")
 	_, offset := now.Zone()
 	offsetHours := offset / 3600
 	offsetSign := "+"

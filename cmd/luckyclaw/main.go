@@ -24,6 +24,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	_ "time/tzdata" // Embed timezone database for devices without /usr/share/zoneinfo
 
 	"github.com/chzyer/readline"
 	"github.com/jamesrossdev/luckyclaw/pkg/agent"
