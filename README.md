@@ -86,8 +86,8 @@ The wizard walks you through:
 
 1. **API Provider** — OpenRouter - but you can manually set up OpenAI, Anthropic, Ollama and others in config.json
 2. **API Key** — Paste your key, it's validated in real-time
-3. **Timezone** — Auto-detected via IP, or enter manually
-4. **Messaging** — Optionally set up Telegram (Discord, WhatsApp, and otherscoming soon)
+3. **Timezone** — Explicitly enter your IANA Zone classification via the [Wikipedia TZ Database List](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones#List) 
+4. **Messaging** — Optionally set up Telegram (Discord, WhatsApp, and others coming soon)
 5. **Start gateway** — Optionally start the AI gateway in the background
 
 ### 4. Chat!

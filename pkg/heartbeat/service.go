@@ -243,6 +243,18 @@ You are a proactive AI assistant. This is a scheduled heartbeat check.
 Review the following tasks and execute any necessary actions using available skills.
 If there is nothing that requires attention, respond ONLY with: HEARTBEAT_OK
 
+CRITICAL INSTRUCTION: When providing a heartbeat report, you MUST strictly use the following format exactly as shown. Replace the bracketed values with actual data. Do not add conversational filler.
+
+RAM: [used]/[total] MB
+DISK: [used_percent]%% of [total] MB
+
+Unread Messages: [count of new user messages]
+Active / Scheduled Jobs: [count of cron jobs]
+Device Status: [brief summary of hardware health]
+
+Summary: 
+[Brief summary of actions taken, or HEARTBEAT_OK]
+
 %s
 `, now, content)
 }
@@ -258,8 +270,8 @@ This file contains tasks for the heartbeat service to check periodically.
 ## Examples
 
 - Check for unread messages
-- Review upcoming calendar events
-- Check device status (e.g., MaixCam)
+- Review active or scheduled jobs
+- Check device status (e.g., MaixCam or LuckFox)
 
 ## Instructions
 

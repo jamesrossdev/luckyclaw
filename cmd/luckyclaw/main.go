@@ -217,6 +217,10 @@ func main() {
 		}
 	case "version", "--version", "-v":
 		printVersion()
+	case "help", "--help", "-h":
+		printHelp()
+	case "config-reset":
+		configResetCmd()
 	default:
 		fmt.Printf("Unknown command: %s\n", command)
 		printHelp()
@@ -229,17 +233,19 @@ func printHelp() {
 	fmt.Println("Usage: luckyclaw <command>")
 	fmt.Println()
 	fmt.Println("Commands:")
-	fmt.Println("  onboard     Initialize luckyclaw configuration and workspace")
-	fmt.Println("  agent       Interact with the agent directly")
-	fmt.Println("  gateway     Start luckyclaw gateway (-b for background)")
-	fmt.Println("  stop        Stop running gateway")
-	fmt.Println("  restart     Restart gateway (stop + start in background)")
-	fmt.Println("  status      Show luckyclaw status")
-	fmt.Println("  cron        Manage scheduled tasks")
-	fmt.Println("  auth        Manage authentication (login, logout, status)")
-	fmt.Println("  migrate     Migrate from OpenClaw to LuckyClaw")
-	fmt.Println("  skills      Manage skills (install, list, remove)")
-	fmt.Println("  version     Show version information")
+	fmt.Println("  onboard       Initialize luckyclaw configuration and workspace")
+	fmt.Println("  agent         Interact with the agent directly")
+	fmt.Println("  gateway       Start luckyclaw gateway (-b for background)")
+	fmt.Println("  stop          Stop running gateway")
+	fmt.Println("  restart       Restart gateway (stop + start in background)")
+	fmt.Println("  status        Show luckyclaw status")
+	fmt.Println("  cron          Manage scheduled tasks")
+	fmt.Println("  auth          Manage authentication (login, logout, status)")
+	fmt.Println("  migrate       Migrate from OpenClaw to LuckyClaw")
+	fmt.Println("  skills        Manage skills (install, list, remove)")
+	fmt.Println("  config-reset  Safely delete your config.json (API keys/models)")
+	fmt.Println("  version       Show version information")
+	fmt.Println("  help          Show this help message")
 }
 
 // promptLine reads a single line from stdin with a prompt.
@@ -297,22 +303,6 @@ func validateTelegramToken(token string) (string, error) {
 		return "", fmt.Errorf("invalid bot token")
 	}
 	return result.Result.Username, nil
-}
-
-// detectTimezone tries to auto-detect timezone via IP geolocation.
-func detectTimezone() string {
-	client := &http.Client{Timeout: 5 * time.Second}
-	resp, err := client.Get("http://ip-api.com/json/?fields=timezone")
-	if err != nil {
-		return ""
-	}
-	defer resp.Body.Close()
-
-	var result struct {
-		Timezone string `json:"timezone"`
-	}
-	json.NewDecoder(resp.Body).Decode(&result)
-	return result.Timezone
 }
 
 // detectBoardModel reads the device tree model string.
@@ -401,16 +391,10 @@ func onboard() {
 	fmt.Println()
 	fmt.Println("  Step 3: Timezone")
 	fmt.Println("  ─────────────────")
-	detectedTZ := detectTimezone()
-	if detectedTZ != "" {
-		fmt.Printf("  Detected: %s\n", detectedTZ)
-		if !promptYN("  Use this timezone?") {
-			detectedTZ = promptLine("  Enter timezone (e.g. America/New_York): ")
-		}
-	} else {
-		fmt.Println("  Could not auto-detect timezone.")
-		detectedTZ = promptLine("  Enter timezone (e.g. America/New_York): ")
-	}
+	fmt.Println("  Find your Timezone code here:")
+	fmt.Println("  https://en.wikipedia.org/wiki/List_of_tz_database_time_zones#List")
+	fmt.Println()
+	detectedTZ := promptLine("  Enter timezone (e.g. Europe/London): ")
 	if detectedTZ != "" {
 		// Calculate explicit offset for config
 		if loc, err := time.LoadLocation(detectedTZ); err == nil {
@@ -649,6 +633,35 @@ func copyEmbeddedToTarget(targetDir string) error {
 	})
 
 	return err
+}
+
+func configResetCmd() {
+	configPath := getConfigPath()
+
+	fmt.Println()
+	fmt.Println("  ⚠️  WARNING: You are about to erase LuckyClaw's configuration. ⚠️")
+	fmt.Println("  This will completely delete your API keys, LLM preferences,")
+	fmt.Println("  and custom timezone. (It will NOT delete conversation memory).")
+	fmt.Println()
+
+	confirm := promptLine("  Type 'RESET' to confirm: ")
+	if confirm != "RESET" {
+		fmt.Println("  Config reset cancelled.")
+		return
+	}
+
+	err := os.Remove(configPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			fmt.Println("\n  No config file found (already reset).")
+		} else {
+			fmt.Printf("\n  ✗ Failed to delete config file: %v\n", err)
+		}
+		return
+	}
+
+	fmt.Println("\n  ✓ Config successfully erased.")
+	fmt.Println("  Run 'luckyclaw onboard' to start fresh.")
 }
 
 func createWorkspaceTemplates(workspace string) {
