@@ -84,10 +84,10 @@ luckyclaw onboard
 
 The wizard walks you through:
 
-1. **API Provider** — Choose OpenRouter (recommended), OpenAI, Anthropic, Groq, Gemini, or Ollama
+1. **API Provider** — OpenRouter - but you can manually set up OpenAI, Anthropic, Ollama and others in config.json
 2. **API Key** — Paste your key, it's validated in real-time
 3. **Timezone** — Auto-detected via IP, or enter manually
-4. **Messaging** — Optionally set up Telegram (Discord, WhatsApp, Slack coming soon)
+4. **Messaging** — Optionally set up Telegram (Discord, WhatsApp, and otherscoming soon)
 5. **Start gateway** — Optionally start the AI gateway in the background
 
 ### 4. Chat!
@@ -109,8 +109,8 @@ luckyclaw agent
 
 | Channel      | Status     | Setup                      |
 | ------------ | ---------- | -------------------------- |
-| **Telegram** | ✅ Ready    | Token from @BotFather      |
-| **Discord**  | ✅ Ready    | Bot token + intents        |
+| **Telegram** | ✅ Ready   | Token from @BotFather      |
+| **Discord**  | ✅ Ready   | Bot token + intents        |
 | **WhatsApp** | 🔜 Planned | —                          |
 | **Slack**    | 🔜 Planned | —                          |
 
