@@ -412,13 +412,27 @@ func onboard() {
 		detectedTZ = promptLine("  Enter timezone (e.g. America/New_York): ")
 	}
 	if detectedTZ != "" {
-		os.Setenv("TZ", detectedTZ)
-		if f, err := os.OpenFile("/etc/profile.d/timezone.sh", os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644); err == nil {
-			f.WriteString(fmt.Sprintf("export TZ='%s'\n", detectedTZ))
-			f.Close()
-			fmt.Printf("  Timezone set: %s ✓\n", detectedTZ)
+		// Calculate explicit offset for config
+		if loc, err := time.LoadLocation(detectedTZ); err == nil {
+			_, offset := time.Now().In(loc).Zone()
+			cfg.Gateway.TimezoneName = detectedTZ
+			cfg.Gateway.UTCOffset = offset
+
+			// Generate POSIX string (inverted sign)
+			posixTZ := getPosixTZ(offset)
+			os.Setenv("TZ", posixTZ)
+
+			if f, err := os.OpenFile("/etc/profile.d/timezone.sh", os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644); err == nil {
+				f.WriteString(fmt.Sprintf("export TZ='%s'\n", posixTZ))
+				f.Close()
+				fmt.Printf("  Timezone set: %s ✓\n", detectedTZ)
+			} else {
+				fmt.Printf("  Timezone set for this session: %s\n", detectedTZ)
+			}
 		} else {
-			fmt.Printf("  Timezone set for this session: %s\n", detectedTZ)
+			fmt.Printf("  Warning: Could not parse timezone %s\n", detectedTZ)
+			cfg.Gateway.TimezoneName = "UTC"
+			cfg.Gateway.UTCOffset = 0
 		}
 	}
 
@@ -742,6 +756,7 @@ func agentCmd() {
 		fmt.Printf("Error loading config: %v\n", err)
 		os.Exit(1)
 	}
+	applySystemTimezone(cfg)
 
 	provider, err := providers.CreateProvider(cfg)
 	if err != nil {
@@ -880,6 +895,7 @@ func gatewayCmd() {
 		fmt.Printf("Error loading config: %v\n", err)
 		os.Exit(1)
 	}
+	applySystemTimezone(cfg)
 
 	provider, err := providers.CreateProvider(cfg)
 	if err != nil {
@@ -1842,4 +1858,48 @@ func skillsShowCmd(loader *skills.SkillsLoader, skillName string) {
 	fmt.Printf("\n📦 Skill: %s\n", skillName)
 	fmt.Println("----------------------")
 	fmt.Println(content)
+}
+
+// OS Timezone Synchronization (POSIX string generation)
+func getPosixTZ(offset int) string {
+	// offset is in seconds.
+	// POSIX TZ format requires the sign to be INVERTED compared to standard ISO offsets.
+	// E.g., UTC+9 (Tokyo, offset=32400) -> TZ=LCL-9
+	// E.g., UTC-5 (New York, offset=-18000) -> TZ=LCL+5
+	// E.g., UTC+5:30 (India, offset=19800) -> TZ=LCL-5:30
+
+	if offset == 0 {
+		return "UTC0"
+	}
+
+	// Invert the sign for POSIX
+	posixOffset := -offset
+
+	sign := ""
+	if posixOffset >= 0 {
+		sign = "+"
+	} else {
+		sign = "-"
+		posixOffset = -posixOffset
+	}
+
+	hours := posixOffset / 3600
+	remainder := posixOffset % 3600
+	minutes := remainder / 60
+	seconds := remainder % 60
+
+	if seconds > 0 {
+		return fmt.Sprintf("LCL%s%d:%02d:%02d", sign, hours, minutes, seconds)
+	} else if minutes > 0 {
+		return fmt.Sprintf("LCL%s%d:%02d", sign, hours, minutes)
+	}
+	return fmt.Sprintf("LCL%s%d", sign, hours)
+}
+
+func applySystemTimezone(cfg *config.Config) {
+	// Sync the underlying OS environment timezone with the config
+	// so terminal commands executed by the LLM (like `date`) perfectly
+	// match the system prompt time without requiring zoneinfo db.
+	posixTZ := getPosixTZ(cfg.Gateway.UTCOffset)
+	os.Setenv("TZ", posixTZ)
 }

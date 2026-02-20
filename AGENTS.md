@@ -71,6 +71,13 @@ Every byte counts. The binary is already ~15MB stripped. Adding dependencies inc
 
 ## Build & Deploy
 
+### Testing Before Commits
+Always ensure the CI tests pass before committing any changes. Run:
+```bash
+make check
+```
+This runs `deps`, `fmt`, `vet`, and the full `test` suite in one command.
+
 ### Cross-Compile
 ```bash
 GOOS=linux GOARCH=arm GOARM=7 CGO_ENABLED=0 \

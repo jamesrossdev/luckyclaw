@@ -191,8 +191,10 @@ type ProviderConfig struct {
 }
 
 type GatewayConfig struct {
-	Host string `json:"host" env:"LUCKYCLAW_GATEWAY_HOST"`
-	Port int    `json:"port" env:"LUCKYCLAW_GATEWAY_PORT"`
+	Host         string `json:"host" env:"LUCKYCLAW_GATEWAY_HOST"`
+	Port         int    `json:"port" env:"LUCKYCLAW_GATEWAY_PORT"`
+	TimezoneName string `json:"timezone_name" env:"LUCKYCLAW_GATEWAY_TIMEZONE_NAME"`
+	UTCOffset    int    `json:"utc_offset" env:"LUCKYCLAW_GATEWAY_UTC_OFFSET"`
 }
 
 type BraveConfig struct {
