@@ -84,7 +84,7 @@ This runs `deps`, `fmt`, `vet`, and the full `test` suite in one command.
 ### Cross-Compile
 ```bash
 GOOS=linux GOARCH=arm GOARM=7 CGO_ENABLED=0 \
-  go build -ldflags "-s -w -X main.version=0.3.0" \
+  go build -ldflags "-s -w -X main.version=0.2.0" \
   -o build/luckyclaw-linux-arm ./cmd/luckyclaw
 ```
 

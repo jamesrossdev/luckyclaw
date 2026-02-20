@@ -1897,6 +1897,10 @@ func getPosixTZ(offset int) string {
 }
 
 func applySystemTimezone(cfg *config.Config) {
+	if cfg.Gateway.TimezoneName == "" {
+		return // Legacy config fallback
+	}
+
 	// Sync the underlying OS environment timezone with the config
 	// so terminal commands executed by the LLM (like `date`) perfectly
 	// match the system prompt time without requiring zoneinfo db.

@@ -65,18 +65,21 @@ func (cb *ContextBuilder) getIdentity() string {
 		tzName = "UTC"
 	}
 
-	// 2. Create a FixedZone. ZERO external dependencies.
-	loc := time.FixedZone(tzName, offset)
+	// 2. Try dynamic DST-aware location first using embedded tzdata
+	var loc *time.Location
+	var err error
+	if tzName != "UTC" {
+		loc, err = time.LoadLocation(tzName)
+	}
+	if loc == nil || err != nil {
+		// Fallback to static mathematical offset if LoadLocation fails
+		loc = time.FixedZone(tzName, offset)
+	}
+
 	now := time.Now().In(loc)
 
 	timeStr := now.Format("2006-01-02 15:04 (Monday)")
-	offsetHours := offset / 3600
-	offsetSign := "+"
-	if offsetHours < 0 {
-		offsetSign = "-"
-		offsetHours = -offsetHours
-	}
-	timeStr = fmt.Sprintf("Current time: %s — %s (UTC%s%d)\n", timeStr, tzName, offsetSign, offsetHours)
+	timeStr = fmt.Sprintf("Current time: %s — %s (UTC%s)\n", timeStr, tzName, now.Format("-07:00"))
 	timeStr += "CRITICAL INSTRUCTION: You must strictly use the current time provided above for any time-aware reasoning. Do not estimate, calculate, or infer the time or timezone from user context, location, or any other source."
 
 	workspacePath, _ := filepath.Abs(filepath.Join(cb.workspace))
