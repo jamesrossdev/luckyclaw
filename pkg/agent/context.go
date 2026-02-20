@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jamesrossdev/luckyclaw/pkg/config"
 	"github.com/jamesrossdev/luckyclaw/pkg/logger"
 	"github.com/jamesrossdev/luckyclaw/pkg/providers"
 	"github.com/jamesrossdev/luckyclaw/pkg/skills"
@@ -20,6 +21,7 @@ type ContextBuilder struct {
 	memory        *MemoryStore
 	tools         *tools.ToolRegistry // Direct reference to tool registry
 	maxIterations int                 // Max tool iterations per message
+	config        *config.Config
 }
 
 func getGlobalConfigDir() string {
@@ -30,7 +32,7 @@ func getGlobalConfigDir() string {
 	return filepath.Join(home, ".luckyclaw")
 }
 
-func NewContextBuilder(workspace string) *ContextBuilder {
+func NewContextBuilder(workspace string, cfg *config.Config) *ContextBuilder {
 	// builtin skills: skills directory in current project
 	// Use the skills/ directory under the current working directory
 	wd, _ := os.Getwd()
@@ -41,6 +43,7 @@ func NewContextBuilder(workspace string) *ContextBuilder {
 		workspace:    workspace,
 		skillsLoader: skills.NewSkillsLoader(workspace, globalSkillsDir, builtinSkillsDir),
 		memory:       NewMemoryStore(workspace),
+		config:       cfg,
 	}
 }
 
@@ -55,26 +58,29 @@ func (cb *ContextBuilder) SetMaxIterations(n int) {
 }
 
 func (cb *ContextBuilder) getIdentity() string {
-	// Resolve timezone: Go's embedded zoneinfo works even without /usr/share/zoneinfo
-	tzName := os.Getenv("TZ")
-	now := time.Now()
-	if tzName != "" {
-		if loc, err := time.LoadLocation(tzName); err == nil {
-			now = now.In(loc)
-		}
-	}
+	// 1. Get explicit offset from config
+	offset := cb.config.Gateway.UTCOffset
+	tzName := cb.config.Gateway.TimezoneName
 	if tzName == "" {
-		tzName, _ = now.Zone()
+		tzName = "UTC"
 	}
+
+	// 2. Try dynamic DST-aware location first using embedded tzdata
+	var loc *time.Location
+	var err error
+	if tzName != "UTC" {
+		loc, err = time.LoadLocation(tzName)
+	}
+	if loc == nil || err != nil {
+		// Fallback to static mathematical offset if LoadLocation fails
+		loc = time.FixedZone(tzName, offset)
+	}
+
+	now := time.Now().In(loc)
+
 	timeStr := now.Format("2006-01-02 15:04 (Monday)")
-	_, offset := now.Zone()
-	offsetHours := offset / 3600
-	offsetSign := "+"
-	if offsetHours < 0 {
-		offsetSign = "-"
-		offsetHours = -offsetHours
-	}
-	timeStr = fmt.Sprintf("%s — %s (UTC%s%d)", timeStr, tzName, offsetSign, offsetHours)
+	timeStr = fmt.Sprintf("Current time: %s — %s (UTC%s)\n", timeStr, tzName, now.Format("-07:00"))
+	timeStr += "CRITICAL INSTRUCTION: You must strictly use the current time provided above for any time-aware reasoning. Do not estimate, calculate, or infer the time or timezone from user context, location, or any other source."
 
 	workspacePath, _ := filepath.Abs(filepath.Join(cb.workspace))
 	rt := fmt.Sprintf("%s %s, Go %s", runtime.GOOS, runtime.GOARCH, runtime.Version())

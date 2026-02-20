@@ -69,12 +69,22 @@ Telegram API DNS (`api.telegram.org`) sometimes fails to resolve. The init scrip
 ### 6. Don't Add Unnecessary Dependencies
 Every byte counts. The binary is already ~15MB stripped. Adding dependencies increases memory usage. Always test with `GOMEMLIMIT=8MiB`.
 
+### 7. AI Agent Access to the Device
+If you are an AI agent and need to test changes, examine logs, or execute commands directly on the Luckfox Pico hardware, **do not guess the IP or password**. Simply ask the user to provide the SSH IP address and password for the device, and use the `run_command` tool via `sshpass` (e.g., `sshpass -p <password> ssh root@<ip>`).
+
 ## Build & Deploy
+
+### Testing Before Commits
+Always ensure the CI tests pass before committing any changes. Run:
+```bash
+make check
+```
+This runs `deps`, `fmt`, `vet`, and the full `test` suite in one command.
 
 ### Cross-Compile
 ```bash
 GOOS=linux GOARCH=arm GOARM=7 CGO_ENABLED=0 \
-  go build -ldflags "-s -w -X main.version=0.3.0" \
+  go build -ldflags "-s -w -X main.version=0.2.0" \
   -o build/luckyclaw-linux-arm ./cmd/luckyclaw
 ```
 

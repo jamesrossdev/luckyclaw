@@ -146,7 +146,7 @@ func NewAgentLoop(cfg *config.Config, msgBus *bus.MessageBus, provider providers
 	stateManager := state.NewManager(workspace)
 
 	// Create context builder and set tools registry
-	contextBuilder := NewContextBuilder(workspace)
+	contextBuilder := NewContextBuilder(workspace, cfg)
 	contextBuilder.SetToolsRegistry(toolsRegistry)
 	contextBuilder.SetMaxIterations(cfg.Agents.Defaults.MaxToolIterations)
 
