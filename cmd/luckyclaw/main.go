@@ -1432,6 +1432,12 @@ func authStatusCmd() {
 }
 
 func getConfigPath() string {
+	if envPath := os.Getenv("LUCKYCLAW_CONFIG"); envPath != "" {
+		return envPath
+	}
+	if _, err := os.Stat("/oem"); err == nil {
+		return "/oem/.luckyclaw/config.json"
+	}
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, ".luckyclaw", "config.json")
 }

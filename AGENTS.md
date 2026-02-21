@@ -72,6 +72,9 @@ Every byte counts. The binary is already ~15MB stripped. Adding dependencies inc
 ### 7. AI Agent Access to the Device
 If you are an AI agent and need to test changes, examine logs, or execute commands directly on the Luckfox Pico hardware, **do not guess the IP or password**. Simply ask the user to provide the SSH IP address and password for the device, and use the `run_command` tool via `sshpass` (e.g., `sshpass -p <password> ssh root@<ip>`).
 
+### 8. Committing and Pushing Code
+If you are an AI agent, you **MUST NEVER** commit or push code without explicit permission from the user. When you are asked to commit, you must ensure that the tracked `firmware/overlay` directory is completely up to date with whatever modifications were made inside the untracked `luckfox-pico-sdk` directory. This is the only way secondary developers receive OS-level modifications.
+
 ## Build & Deploy
 
 ### Testing Before Commits
