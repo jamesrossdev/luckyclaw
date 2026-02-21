@@ -121,11 +121,26 @@ func (cs *CronService) runLoop(stopChan chan struct{}) {
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
 
+	lastTickMS := time.Now().UnixMilli()
+
 	for {
 		select {
 		case <-stopChan:
 			return
 		case <-ticker.C:
+			nowMS := time.Now().UnixMilli()
+
+			// Detect NTP clock jumps (embedded devices booting from 1970)
+			// If the clock jumps forward more than 5 seconds, or goes backwards
+			if nowMS-lastTickMS > 5000 || nowMS < lastTickMS {
+				log.Printf("[cron] System clock jumped from %d to %d (diff: %d ms). Recomputing scheduled jobs...", lastTickMS, nowMS, nowMS-lastTickMS)
+				cs.mu.Lock()
+				cs.recomputeNextRunsUnsafe(nowMS)
+				_ = cs.saveStoreUnsafe()
+				cs.mu.Unlock()
+			}
+			lastTickMS = nowMS
+
 			cs.checkJobs()
 		}
 	}
@@ -263,8 +278,8 @@ func (cs *CronService) computeNextRun(schedule *CronSchedule, nowMS int64) *int6
 			return nil
 		}
 
-		// Use gronx to calculate next run time
-		now := time.UnixMilli(nowMS)
+		// Use gronx to calculate next run time relative to the system timezone
+		now := time.UnixMilli(nowMS).In(time.Local)
 		nextTime, err := gronx.NextTickAfter(schedule.Expr, now, false)
 		if err != nil {
 			log.Printf("[cron] failed to compute next run for expr '%s': %v", schedule.Expr, err)
@@ -278,14 +293,17 @@ func (cs *CronService) computeNextRun(schedule *CronSchedule, nowMS int64) *int6
 	return nil
 }
 
-func (cs *CronService) recomputeNextRuns() {
-	now := time.Now().UnixMilli()
+func (cs *CronService) recomputeNextRunsUnsafe(now int64) {
 	for i := range cs.store.Jobs {
 		job := &cs.store.Jobs[i]
 		if job.Enabled {
 			job.State.NextRunAtMS = cs.computeNextRun(&job.Schedule, now)
 		}
 	}
+}
+
+func (cs *CronService) recomputeNextRuns() {
+	cs.recomputeNextRunsUnsafe(time.Now().UnixMilli())
 }
 
 func (cs *CronService) getNextWakeMS() *int64 {

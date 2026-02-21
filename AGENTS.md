@@ -75,6 +75,9 @@ If you are an AI agent and need to test changes, examine logs, or execute comman
 ### 8. Committing and Pushing Code
 If you are an AI agent, you **MUST NEVER** commit or push code without explicit permission from the user. When you are asked to commit, you must ensure that the tracked `firmware/overlay` directory is completely up to date with whatever modifications were made inside the untracked `luckfox-pico-sdk` directory. This is the only way secondary developers receive OS-level modifications.
 
+### 9. Execution Requires Approved Implementation Plan
+If you are an AI agent, you **MUST NEVER** execute code changes, environment modifications, or configuration adjustments without explicitly drafting an implementation plan and receiving the user's explicit approval first. Do not make unauthorized technical assumptions.
+
 ## Build & Deploy
 
 ### Testing Before Commits

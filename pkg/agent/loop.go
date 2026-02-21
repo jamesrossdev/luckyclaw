@@ -651,7 +651,9 @@ func (al *AgentLoop) runLLMIteration(ctx context.Context, messages []providers.M
 		messages = append(messages, assistantMsg)
 
 		// Save assistant message with tool calls to session
-		al.sessions.AddFullMessage(opts.SessionKey, assistantMsg)
+		if !opts.NoHistory {
+			al.sessions.AddFullMessage(opts.SessionKey, assistantMsg)
+		}
 
 		// Execute tool calls
 		for _, tc := range response.ToolCalls {
@@ -710,7 +712,9 @@ func (al *AgentLoop) runLLMIteration(ctx context.Context, messages []providers.M
 			messages = append(messages, toolResultMsg)
 
 			// Save tool result message to session
-			al.sessions.AddFullMessage(opts.SessionKey, toolResultMsg)
+			if !opts.NoHistory {
+				al.sessions.AddFullMessage(opts.SessionKey, toolResultMsg)
+			}
 		}
 	}
 

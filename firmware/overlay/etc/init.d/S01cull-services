@@ -1,0 +1,21 @@
+#!/bin/sh
+# Disable unnecessary services for LuckyClaw AI assistant
+# Saves ~1-2MB RAM on memory-constrained boards
+
+case "$1" in
+  start)
+    # Android Debug Bridge — not needed, SSH available (saves ~0.5MB, 5 processes)
+    killall adbd 2>/dev/null
+    # Telnet daemon — insecure, SSH already available (saves ~0.1MB)
+    killall telnetd 2>/dev/null
+    # Kernel log daemon — redundant with syslogd (saves ~0.1MB)
+    killall klogd 2>/dev/null
+    # USB gadget config — not needed for headless AI (saves ~0.3MB)
+    [ -f /etc/init.d/S99usb0config ] && /etc/init.d/S99usb0config stop 2>/dev/null
+    killall S99usb0config 2>/dev/null
+    ;;
+  *)
+    echo "Usage: $0 {start}"
+    ;;
+esac
+exit 0
