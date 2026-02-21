@@ -478,7 +478,7 @@ func onboard() {
 
 	fmt.Println()
 	fmt.Println("  ╔══════════════════════════════════════╗")
-	fmt.Println("  ║  🦞 LuckyClaw is ready!               ║")
+	fmt.Println("  ║  🦞 LuckyClaw is ready!              ║")
 	fmt.Println("  ╚══════════════════════════════════════╝")
 	fmt.Println()
 	fmt.Println("  Commands:")
@@ -487,6 +487,7 @@ func onboard() {
 	fmt.Println("    luckyclaw gateway -b — Start in background")
 	fmt.Println("    luckyclaw stop       — Stop the gateway")
 	fmt.Println("    luckyclaw restart    — Restart the gateway")
+	fmt.Println("    luckyclaw help       — View more commands")
 	fmt.Println()
 }
 

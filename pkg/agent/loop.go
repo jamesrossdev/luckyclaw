@@ -386,7 +386,9 @@ func (al *AgentLoop) runAgentLoop(ctx context.Context, opts processOptions) (str
 	)
 
 	// 3. Save user message to session
-	al.sessions.AddMessage(opts.SessionKey, "user", opts.UserMessage)
+	if !opts.NoHistory {
+		al.sessions.AddMessage(opts.SessionKey, "user", opts.UserMessage)
+	}
 
 	// 4. Run LLM iteration loop
 	finalContent, iteration, err := al.runLLMIteration(ctx, messages, opts)
@@ -403,8 +405,10 @@ func (al *AgentLoop) runAgentLoop(ctx context.Context, opts processOptions) (str
 	}
 
 	// 6. Save final assistant message to session
-	al.sessions.AddMessage(opts.SessionKey, "assistant", finalContent)
-	al.sessions.Save(opts.SessionKey)
+	if !opts.NoHistory {
+		al.sessions.AddMessage(opts.SessionKey, "assistant", finalContent)
+		al.sessions.Save(opts.SessionKey)
+	}
 
 	// 7. Optional: summarization
 	if opts.EnableSummary {
