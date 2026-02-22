@@ -44,7 +44,7 @@ func (t *CronTool) Name() string {
 
 // Description returns the tool description
 func (t *CronTool) Description() string {
-	return "Schedule reminders, tasks, or system commands. IMPORTANT: When user asks to be reminded or scheduled, you MUST call this tool. Use 'at_seconds' for one-time reminders (e.g., 'remind me in 10 minutes' → at_seconds=600). Use 'every_seconds' ONLY for recurring tasks (e.g., 'every 2 hours' → every_seconds=7200). Use 'cron_expr' for complex recurring schedules. Use 'command' to execute shell commands directly."
+	return "Schedule reminders, tasks, or system commands. IMPORTANT: When user asks to be reminded or scheduled, you MUST call this tool. Use 'at_seconds' for one-time relative reminders (e.g., 'remind me in 10 minutes' → at_seconds=600). Use 'every_seconds' ONLY for simple repeating intervals with NO specific clock time (e.g., 'every 2 hours' → every_seconds=7200). Use 'cron_expr' for ANY schedule anchored to a specific clock time, including daily alarms (e.g., 'every day at 7am' → cron_expr='0 7 * * *', 'weekdays at 9:30am' → cron_expr='30 9 * * 1-5'). Use 'command' to execute shell commands directly."
 }
 
 // Parameters returns the tool parameters schema
@@ -67,15 +67,15 @@ func (t *CronTool) Parameters() map[string]interface{} {
 			},
 			"at_seconds": map[string]interface{}{
 				"type":        "integer",
-				"description": "One-time reminder: seconds from now when to trigger (e.g., 600 for 10 minutes later). Use this for one-time reminders like 'remind me in 10 minutes'.",
+				"description": "One-time reminder: seconds from NOW to trigger. Use ONLY for relative time offsets (e.g., 'in 10 minutes' → 600, 'in 1 hour' → 3600). Do NOT use for specific clock times like 'at 7am' — use cron_expr instead.",
 			},
 			"every_seconds": map[string]interface{}{
 				"type":        "integer",
-				"description": "Recurring interval in seconds (e.g., 3600 for every hour). Use this ONLY for recurring tasks like 'every 2 hours' or 'daily reminder'.",
+				"description": "Recurring interval in seconds with NO clock anchor (e.g., 3600 for every hour). Use ONLY when no specific time-of-day is mentioned (e.g., 'every 2 hours', 'every 30 minutes'). Do NOT use for 'daily at 7am' — use cron_expr='0 7 * * *' instead.",
 			},
 			"cron_expr": map[string]interface{}{
 				"type":        "string",
-				"description": "Cron expression for complex recurring schedules (e.g., '0 9 * * *' for daily at 9am). Use this for complex recurring schedules.",
+				"description": "Standard 5-field cron expression (minute hour day month weekday). Use this for ANY schedule at a specific clock time. Examples: daily at 7am → '0 7 * * *', weekdays at 9:30am → '30 9 * * 1-5', every day at 6:15pm → '15 18 * * *'. This is the PREFERRED method for daily alarms and time-anchored reminders.",
 			},
 			"job_id": map[string]interface{}{
 				"type":        "string",

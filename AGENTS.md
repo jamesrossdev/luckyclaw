@@ -78,6 +78,9 @@ If you are an AI agent, you **MUST NEVER** commit or push code without explicit 
 ### 9. Execution Requires Approved Implementation Plan
 If you are an AI agent, you **MUST NEVER** execute code changes, environment modifications, or configuration adjustments without explicitly drafting an implementation plan and receiving the user's explicit approval first. Do not make unauthorized technical assumptions.
 
+### 10. Multiple Daemon Instances & PID Tracking
+If `luckyclaw gateway -b` is executed while a daemon started by `/etc/init.d/S99luckyclaw` is already running it will overwrite the `/var/run/luckyclaw.pid` file. Because the init script only tracks the latest PID, subsequent `stop` or `restart` commands will leave the original daemon alive as a zombie, causing duplicate Telegram processing and hallucinated timestamps in session memory. **Fix:** Going forward, making sure we strictly append `&& killall -9 luckyclaw` alongside the init script (which I've started doing in my deploy commands) completely eliminates the possibility of this happening again.
+
 ## Build & Deploy
 
 ### Testing Before Commits

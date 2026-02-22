@@ -933,6 +933,10 @@ func (al *AgentLoop) summarizeSession(sessionKey string) {
 	}
 
 	if len(validMessages) == 0 {
+		// Even if no messages were valid for summarization (e.g. all tool messages),
+		// we must still truncate to prevent an infinite optimization loop on the next turn.
+		al.sessions.TruncateHistory(sessionKey, 4)
+		al.sessions.Save(sessionKey)
 		return
 	}
 
@@ -975,7 +979,7 @@ func (al *AgentLoop) summarizeSession(sessionKey string) {
 
 // summarizeBatch summarizes a batch of messages.
 func (al *AgentLoop) summarizeBatch(ctx context.Context, batch []providers.Message, existingSummary string) (string, error) {
-	prompt := "Provide a concise summary of this conversation segment, preserving core context and key points.\n"
+	prompt := "Provide a concise summary of this conversation segment, preserving core context and key points.\nIMPORTANT: Do NOT include any timestamps, current times, or date references in the summary. These change every message and will be stale.\n"
 	if existingSummary != "" {
 		prompt += "Existing context: " + existingSummary + "\n"
 	}

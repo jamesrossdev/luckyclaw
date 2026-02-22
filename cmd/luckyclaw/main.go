@@ -939,7 +939,7 @@ func gatewayCmd() {
 		})
 
 	// Setup cron tool and service
-	cronService := setupCronTool(agentLoop, msgBus, cfg.WorkspacePath(), cfg.Agents.Defaults.RestrictToWorkspace)
+	cronService := setupCronTool(agentLoop, msgBus, cfg)
 
 	heartbeatService := heartbeat.NewHeartbeatService(
 		cfg.WorkspacePath(),
@@ -1442,14 +1442,19 @@ func getConfigPath() string {
 	return filepath.Join(home, ".luckyclaw", "config.json")
 }
 
-func setupCronTool(agentLoop *agent.AgentLoop, msgBus *bus.MessageBus, workspace string, restrict bool) *cron.CronService {
-	cronStorePath := filepath.Join(workspace, "cron", "jobs.json")
+func setupCronTool(agentLoop *agent.AgentLoop, msgBus *bus.MessageBus, cfg *config.Config) *cron.CronService {
+	cronStorePath := filepath.Join(cfg.WorkspacePath(), "cron", "jobs.json")
+
+	loc, err := time.LoadLocation(cfg.Gateway.TimezoneName)
+	if err != nil {
+		loc = time.UTC
+	}
 
 	// Create cron service
-	cronService := cron.NewCronService(cronStorePath, nil)
+	cronService := cron.NewCronService(cronStorePath, nil, loc)
 
 	// Create and register CronTool
-	cronTool := tools.NewCronTool(cronService, agentLoop, msgBus, workspace, restrict)
+	cronTool := tools.NewCronTool(cronService, agentLoop, msgBus, cfg.WorkspacePath(), cfg.Agents.Defaults.RestrictToWorkspace)
 	agentLoop.RegisterTool(cronTool)
 
 	// Set the onJob handler
@@ -1462,9 +1467,32 @@ func setupCronTool(agentLoop *agent.AgentLoop, msgBus *bus.MessageBus, workspace
 }
 
 func loadConfig() (*config.Config, error) {
-	return config.LoadConfig(getConfigPath())
+	cfg, err := config.LoadConfig(getConfigPath())
+	if err == nil {
+		applyConfigDefaults(cfg)
+	}
+	return cfg, err
 }
 
+func applyConfigDefaults(cfg *config.Config) {
+	changed := false
+	defaults := config.DefaultConfig()
+	if cfg.Agents.Defaults.MaxTokens < defaults.Agents.Defaults.MaxTokens {
+		cfg.Agents.Defaults.MaxTokens = defaults.Agents.Defaults.MaxTokens
+		changed = true
+	}
+	if cfg.Agents.Defaults.MaxToolIterations < defaults.Agents.Defaults.MaxToolIterations {
+		cfg.Agents.Defaults.MaxToolIterations = defaults.Agents.Defaults.MaxToolIterations
+		changed = true
+	}
+	if changed {
+		logger.Info("Auto-upgrading stale memory configuration limits to firmware defaults")
+		err := config.SaveConfig(getConfigPath(), cfg)
+		if err != nil {
+			logger.Error(fmt.Sprintf("Failed to save auto-upgraded config: %v", err))
+		}
+	}
+}
 func cronCmd() {
 	if len(os.Args) < 3 {
 		cronHelp()
@@ -1482,21 +1510,26 @@ func cronCmd() {
 
 	cronStorePath := filepath.Join(cfg.WorkspacePath(), "cron", "jobs.json")
 
+	loc, err := time.LoadLocation(cfg.Gateway.TimezoneName)
+	if err != nil {
+		loc = time.UTC
+	}
+
 	switch subcommand {
 	case "list":
-		cronListCmd(cronStorePath)
+		cronListCmd(cronStorePath, loc)
 	case "add":
-		cronAddCmd(cronStorePath)
+		cronAddCmd(cronStorePath, loc)
 	case "remove":
 		if len(os.Args) < 4 {
 			fmt.Println("Usage: luckyclaw cron remove <job_id>")
 			return
 		}
-		cronRemoveCmd(cronStorePath, os.Args[3])
+		cronRemoveCmd(cronStorePath, os.Args[3], loc)
 	case "enable":
-		cronEnableCmd(cronStorePath, false)
+		cronEnableCmd(cronStorePath, false, loc)
 	case "disable":
-		cronEnableCmd(cronStorePath, true)
+		cronEnableCmd(cronStorePath, true, loc)
 	default:
 		fmt.Printf("Unknown cron command: %s\n", subcommand)
 		cronHelp()
@@ -1521,8 +1554,8 @@ func cronHelp() {
 	fmt.Println("  --channel        Channel for delivery")
 }
 
-func cronListCmd(storePath string) {
-	cs := cron.NewCronService(storePath, nil)
+func cronListCmd(storePath string, loc *time.Location) {
+	cs := cron.NewCronService(storePath, nil, loc)
 	jobs := cs.ListJobs(true) // Show all jobs, including disabled
 
 	if len(jobs) == 0 {
@@ -1560,7 +1593,7 @@ func cronListCmd(storePath string) {
 	}
 }
 
-func cronAddCmd(storePath string) {
+func cronAddCmd(storePath string, loc *time.Location) {
 	name := ""
 	message := ""
 	var everySec *int64
@@ -1638,7 +1671,7 @@ func cronAddCmd(storePath string) {
 		}
 	}
 
-	cs := cron.NewCronService(storePath, nil)
+	cs := cron.NewCronService(storePath, nil, loc)
 	job, err := cs.AddJob(name, schedule, message, deliver, channel, to)
 	if err != nil {
 		fmt.Printf("Error adding job: %v\n", err)
@@ -1648,8 +1681,8 @@ func cronAddCmd(storePath string) {
 	fmt.Printf("✓ Added job '%s' (%s)\n", job.Name, job.ID)
 }
 
-func cronRemoveCmd(storePath, jobID string) {
-	cs := cron.NewCronService(storePath, nil)
+func cronRemoveCmd(storePath, jobID string, loc *time.Location) {
+	cs := cron.NewCronService(storePath, nil, loc)
 	if cs.RemoveJob(jobID) {
 		fmt.Printf("✓ Removed job %s\n", jobID)
 	} else {
@@ -1657,14 +1690,14 @@ func cronRemoveCmd(storePath, jobID string) {
 	}
 }
 
-func cronEnableCmd(storePath string, disable bool) {
+func cronEnableCmd(storePath string, disable bool, loc *time.Location) {
 	if len(os.Args) < 4 {
 		fmt.Println("Usage: luckyclaw cron enable/disable <job_id>")
 		return
 	}
 
 	jobID := os.Args[3]
-	cs := cron.NewCronService(storePath, nil)
+	cs := cron.NewCronService(storePath, nil, loc)
 	enabled := !disable
 
 	job := cs.EnableJob(jobID, enabled)

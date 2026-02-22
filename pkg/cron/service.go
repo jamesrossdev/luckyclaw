@@ -65,13 +65,18 @@ type CronService struct {
 	running   bool
 	stopChan  chan struct{}
 	gronx     *gronx.Gronx
+	loc       *time.Location
 }
 
-func NewCronService(storePath string, onJob JobHandler) *CronService {
+func NewCronService(storePath string, onJob JobHandler, loc *time.Location) *CronService {
+	if loc == nil {
+		loc = time.UTC
+	}
 	cs := &CronService{
 		storePath: storePath,
 		onJob:     onJob,
 		gronx:     gronx.New(),
+		loc:       loc,
 	}
 	// Initialize and load store on creation
 	cs.loadStore()
@@ -279,7 +284,7 @@ func (cs *CronService) computeNextRun(schedule *CronSchedule, nowMS int64) *int6
 		}
 
 		// Use gronx to calculate next run time relative to the system timezone
-		now := time.UnixMilli(nowMS).In(time.Local)
+		now := time.UnixMilli(nowMS).In(cs.loc)
 		nextTime, err := gronx.NextTickAfter(schedule.Expr, now, false)
 		if err != nil {
 			log.Printf("[cron] failed to compute next run for expr '%s': %v", schedule.Expr, err)
