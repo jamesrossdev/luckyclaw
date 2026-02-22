@@ -37,7 +37,7 @@ case "$1" in
   stop)
     echo "Stopping LuckyClaw..."
     start-stop-daemon -K -p $PIDFILE 2>/dev/null
-    killall luckyclaw 2>/dev/null
+    killall -9 luckyclaw 2>/dev/null
     rm -f $PIDFILE
     ;;
   restart)
