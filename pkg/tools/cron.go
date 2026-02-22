@@ -44,7 +44,7 @@ func (t *CronTool) Name() string {
 
 // Description returns the tool description
 func (t *CronTool) Description() string {
-	return "Schedule reminders, tasks, or system commands. IMPORTANT: When user asks to be reminded or scheduled, you MUST call this tool. Use 'at_seconds' for one-time relative reminders (e.g., 'remind me in 10 minutes' → at_seconds=600). Use 'every_seconds' ONLY for simple repeating intervals with NO specific clock time (e.g., 'every 2 hours' → every_seconds=7200). Use 'cron_expr' for ANY schedule anchored to a specific clock time, including daily alarms (e.g., 'every day at 7am' → cron_expr='0 7 * * *', 'weekdays at 9:30am' → cron_expr='30 9 * * 1-5'). Use 'command' to execute shell commands directly."
+	return "Schedule reminders, tasks, or system commands. IMPORTANT: When user asks to be reminded or scheduled, you MUST call this tool. Use 'at_seconds' for one-time relative reminders (e.g., 'remind me in 10 minutes' → at_seconds=600). Use 'every_seconds' ONLY for simple repeating intervals with NO specific clock time (e.g., 'every 2 hours' → every_seconds=7200). Use 'cron_expr' for ANY schedule anchored to a specific clock time, including daily alarms (e.g., 'every day at 7am' → cron_expr='0 7 * * *', 'weekdays at 9:30am' → cron_expr='30 9 * * 1-5'). Use 'command' to execute shell commands directly. WHEN ACKNOWLEDGING a successful schedule, you MUST include the returned Job ID in your response (e.g. 'I set a reminder (Job ID: abc123def)')."
 }
 
 // Parameters returns the tool parameters schema
