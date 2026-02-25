@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/jamesrossdev/luckyclaw/pkg/bus"
@@ -205,14 +206,39 @@ func (hs *HeartbeatService) executeHeartbeat() {
 		return
 	}
 
-	// Send result to user
-	if result.ForUser != "" {
-		hs.sendResponse(result.ForUser)
-	} else if result.ForLLM != "" {
-		hs.sendResponse(result.ForLLM)
+	// Filter out the silent "HEARTBEAT_OK" acknowledgment
+	content := result.ForUser
+	if content == "" {
+		content = result.ForLLM
 	}
 
-	hs.logInfo("Heartbeat completed: %s", result.ForLLM)
+	if strings.TrimSpace(content) == "HEARTBEAT_OK" {
+		hs.logInfo("Heartbeat OK - normal metrics, silent drop")
+		return
+	}
+
+	// Send result to user
+	if content != "" {
+		hs.sendResponse(content)
+	}
+
+	hs.logInfo("Heartbeat completed: %s", content)
+}
+
+// getDiskUsage returns the percentage of the root filesystem used.
+func getDiskUsage() float64 {
+	var stat syscall.Statfs_t
+	if err := syscall.Statfs("/", &stat); err != nil {
+		return 0
+	}
+	total := stat.Blocks * uint64(stat.Bsize)
+	free := stat.Bavail * uint64(stat.Bsize)
+	used := total - free
+
+	if total == 0 {
+		return 0
+	}
+	return float64(used) / float64(total) * 100.0
 }
 
 // buildPrompt builds the heartbeat prompt from HEARTBEAT.md
@@ -235,16 +261,27 @@ func (hs *HeartbeatService) buildPrompt() string {
 	}
 
 	now := time.Now().Format("2006-01-02 15:04:05")
+	diskUsage := getDiskUsage()
+	diskStatus := fmt.Sprintf("%.1f%%", diskUsage)
+	if diskUsage < 95.0 {
+		diskStatus = "Normal (Under 95%)"
+	} else {
+		diskStatus = fmt.Sprintf("CRITICAL - %.1f%% used", diskUsage)
+	}
+
 	return fmt.Sprintf(`# Heartbeat Check
 
 Current time: %s
+System Disk Status: %s
 
 You are a proactive AI assistant. This is a scheduled heartbeat check.
 Review the following tasks and execute any necessary actions using available skills.
-If there is nothing that requires attention, respond ONLY with: HEARTBEAT_OK
+
+CRITICAL INSTRUCTION: If there are no tasks in HEARTBEAT.md requiring execution today (and you haven't executed any tools), and the System Status is Normal, respond ONLY with the exact string: HEARTBEAT_OK
+Do NOT output anything else. Do NOT generate a full report unless explicitly instructed by the tasks.
 
 %s
-`, now, content)
+`, now, diskStatus, content)
 }
 
 // createDefaultHeartbeatTemplate creates the default HEARTBEAT.md file
@@ -258,8 +295,8 @@ This file contains tasks for the heartbeat service to check periodically.
 ## Examples
 
 - Check for unread messages
-- Review upcoming calendar events
-- Check device status (e.g., MaixCam)
+- Review active or scheduled jobs
+- Check device status (e.g., MaixCam or LuckFox)
 
 ## Instructions
 

@@ -217,6 +217,10 @@ func main() {
 		}
 	case "version", "--version", "-v":
 		printVersion()
+	case "help", "--help", "-h":
+		printHelp()
+	case "config-reset":
+		configResetCmd()
 	default:
 		fmt.Printf("Unknown command: %s\n", command)
 		printHelp()
@@ -229,17 +233,19 @@ func printHelp() {
 	fmt.Println("Usage: luckyclaw <command>")
 	fmt.Println()
 	fmt.Println("Commands:")
-	fmt.Println("  onboard     Initialize luckyclaw configuration and workspace")
-	fmt.Println("  agent       Interact with the agent directly")
-	fmt.Println("  gateway     Start luckyclaw gateway (-b for background)")
-	fmt.Println("  stop        Stop running gateway")
-	fmt.Println("  restart     Restart gateway (stop + start in background)")
-	fmt.Println("  status      Show luckyclaw status")
-	fmt.Println("  cron        Manage scheduled tasks")
-	fmt.Println("  auth        Manage authentication (login, logout, status)")
-	fmt.Println("  migrate     Migrate from OpenClaw to LuckyClaw")
-	fmt.Println("  skills      Manage skills (install, list, remove)")
-	fmt.Println("  version     Show version information")
+	fmt.Println("  onboard       Initialize luckyclaw configuration and workspace")
+	fmt.Println("  agent         Interact with the agent directly")
+	fmt.Println("  gateway       Start luckyclaw gateway (-b for background)")
+	fmt.Println("  stop          Stop running gateway")
+	fmt.Println("  restart       Restart gateway (stop + start in background)")
+	fmt.Println("  status        Show luckyclaw status")
+	fmt.Println("  cron          Manage scheduled tasks")
+	fmt.Println("  auth          Manage authentication (login, logout, status)")
+	fmt.Println("  migrate       Migrate from OpenClaw to LuckyClaw")
+	fmt.Println("  skills        Manage skills (install, list, remove)")
+	fmt.Println("  config-reset  Safely delete your config.json (API keys/models)")
+	fmt.Println("  version       Show version information")
+	fmt.Println("  help          Show this help message")
 }
 
 // promptLine reads a single line from stdin with a prompt.
@@ -297,22 +303,6 @@ func validateTelegramToken(token string) (string, error) {
 		return "", fmt.Errorf("invalid bot token")
 	}
 	return result.Result.Username, nil
-}
-
-// detectTimezone tries to auto-detect timezone via IP geolocation.
-func detectTimezone() string {
-	client := &http.Client{Timeout: 5 * time.Second}
-	resp, err := client.Get("http://ip-api.com/json/?fields=timezone")
-	if err != nil {
-		return ""
-	}
-	defer resp.Body.Close()
-
-	var result struct {
-		Timezone string `json:"timezone"`
-	}
-	json.NewDecoder(resp.Body).Decode(&result)
-	return result.Timezone
 }
 
 // detectBoardModel reads the device tree model string.
@@ -401,16 +391,10 @@ func onboard() {
 	fmt.Println()
 	fmt.Println("  Step 3: Timezone")
 	fmt.Println("  ─────────────────")
-	detectedTZ := detectTimezone()
-	if detectedTZ != "" {
-		fmt.Printf("  Detected: %s\n", detectedTZ)
-		if !promptYN("  Use this timezone?") {
-			detectedTZ = promptLine("  Enter timezone (e.g. America/New_York): ")
-		}
-	} else {
-		fmt.Println("  Could not auto-detect timezone.")
-		detectedTZ = promptLine("  Enter timezone (e.g. America/New_York): ")
-	}
+	fmt.Println("  Find your Timezone code here:")
+	fmt.Println("  https://en.wikipedia.org/wiki/List_of_tz_database_time_zones#List")
+	fmt.Println()
+	detectedTZ := promptLine("  Enter timezone (e.g. Europe/London): ")
 	if detectedTZ != "" {
 		// Calculate explicit offset for config
 		if loc, err := time.LoadLocation(detectedTZ); err == nil {
@@ -494,7 +478,7 @@ func onboard() {
 
 	fmt.Println()
 	fmt.Println("  ╔══════════════════════════════════════╗")
-	fmt.Println("  ║  🦞 LuckyClaw is ready!               ║")
+	fmt.Println("  ║  🦞 LuckyClaw is ready!              ║")
 	fmt.Println("  ╚══════════════════════════════════════╝")
 	fmt.Println()
 	fmt.Println("  Commands:")
@@ -503,6 +487,7 @@ func onboard() {
 	fmt.Println("    luckyclaw gateway -b — Start in background")
 	fmt.Println("    luckyclaw stop       — Stop the gateway")
 	fmt.Println("    luckyclaw restart    — Restart the gateway")
+	fmt.Println("    luckyclaw help       — View more commands")
 	fmt.Println()
 }
 
@@ -649,6 +634,35 @@ func copyEmbeddedToTarget(targetDir string) error {
 	})
 
 	return err
+}
+
+func configResetCmd() {
+	configPath := getConfigPath()
+
+	fmt.Println()
+	fmt.Println("  ⚠️  WARNING: You are about to erase LuckyClaw's configuration. ⚠️")
+	fmt.Println("  This will completely delete your API keys, LLM preferences,")
+	fmt.Println("  and custom timezone. (It will NOT delete conversation memory).")
+	fmt.Println()
+
+	confirm := promptLine("  Type 'RESET' to confirm: ")
+	if confirm != "RESET" {
+		fmt.Println("  Config reset cancelled.")
+		return
+	}
+
+	err := os.Remove(configPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			fmt.Println("\n  No config file found (already reset).")
+		} else {
+			fmt.Printf("\n  ✗ Failed to delete config file: %v\n", err)
+		}
+		return
+	}
+
+	fmt.Println("\n  ✓ Config successfully erased.")
+	fmt.Println("  Run 'luckyclaw onboard' to start fresh.")
 }
 
 func createWorkspaceTemplates(workspace string) {
@@ -925,7 +939,7 @@ func gatewayCmd() {
 		})
 
 	// Setup cron tool and service
-	cronService := setupCronTool(agentLoop, msgBus, cfg.WorkspacePath(), cfg.Agents.Defaults.RestrictToWorkspace)
+	cronService := setupCronTool(agentLoop, msgBus, cfg)
 
 	heartbeatService := heartbeat.NewHeartbeatService(
 		cfg.WorkspacePath(),
@@ -1418,18 +1432,29 @@ func authStatusCmd() {
 }
 
 func getConfigPath() string {
+	if envPath := os.Getenv("LUCKYCLAW_CONFIG"); envPath != "" {
+		return envPath
+	}
+	if _, err := os.Stat("/oem"); err == nil {
+		return "/oem/.luckyclaw/config.json"
+	}
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, ".luckyclaw", "config.json")
 }
 
-func setupCronTool(agentLoop *agent.AgentLoop, msgBus *bus.MessageBus, workspace string, restrict bool) *cron.CronService {
-	cronStorePath := filepath.Join(workspace, "cron", "jobs.json")
+func setupCronTool(agentLoop *agent.AgentLoop, msgBus *bus.MessageBus, cfg *config.Config) *cron.CronService {
+	cronStorePath := filepath.Join(cfg.WorkspacePath(), "cron", "jobs.json")
+
+	loc, err := time.LoadLocation(cfg.Gateway.TimezoneName)
+	if err != nil {
+		loc = time.UTC
+	}
 
 	// Create cron service
-	cronService := cron.NewCronService(cronStorePath, nil)
+	cronService := cron.NewCronService(cronStorePath, nil, loc)
 
 	// Create and register CronTool
-	cronTool := tools.NewCronTool(cronService, agentLoop, msgBus, workspace, restrict)
+	cronTool := tools.NewCronTool(cronService, agentLoop, msgBus, cfg.WorkspacePath(), cfg.Agents.Defaults.RestrictToWorkspace)
 	agentLoop.RegisterTool(cronTool)
 
 	// Set the onJob handler
@@ -1442,9 +1467,32 @@ func setupCronTool(agentLoop *agent.AgentLoop, msgBus *bus.MessageBus, workspace
 }
 
 func loadConfig() (*config.Config, error) {
-	return config.LoadConfig(getConfigPath())
+	cfg, err := config.LoadConfig(getConfigPath())
+	if err == nil {
+		applyConfigDefaults(cfg)
+	}
+	return cfg, err
 }
 
+func applyConfigDefaults(cfg *config.Config) {
+	changed := false
+	defaults := config.DefaultConfig()
+	if cfg.Agents.Defaults.MaxTokens < defaults.Agents.Defaults.MaxTokens {
+		cfg.Agents.Defaults.MaxTokens = defaults.Agents.Defaults.MaxTokens
+		changed = true
+	}
+	if cfg.Agents.Defaults.MaxToolIterations < defaults.Agents.Defaults.MaxToolIterations {
+		cfg.Agents.Defaults.MaxToolIterations = defaults.Agents.Defaults.MaxToolIterations
+		changed = true
+	}
+	if changed {
+		logger.Info("Auto-upgrading stale memory configuration limits to firmware defaults")
+		err := config.SaveConfig(getConfigPath(), cfg)
+		if err != nil {
+			logger.Error(fmt.Sprintf("Failed to save auto-upgraded config: %v", err))
+		}
+	}
+}
 func cronCmd() {
 	if len(os.Args) < 3 {
 		cronHelp()
@@ -1462,21 +1510,26 @@ func cronCmd() {
 
 	cronStorePath := filepath.Join(cfg.WorkspacePath(), "cron", "jobs.json")
 
+	loc, err := time.LoadLocation(cfg.Gateway.TimezoneName)
+	if err != nil {
+		loc = time.UTC
+	}
+
 	switch subcommand {
 	case "list":
-		cronListCmd(cronStorePath)
+		cronListCmd(cronStorePath, loc)
 	case "add":
-		cronAddCmd(cronStorePath)
+		cronAddCmd(cronStorePath, loc)
 	case "remove":
 		if len(os.Args) < 4 {
 			fmt.Println("Usage: luckyclaw cron remove <job_id>")
 			return
 		}
-		cronRemoveCmd(cronStorePath, os.Args[3])
+		cronRemoveCmd(cronStorePath, os.Args[3], loc)
 	case "enable":
-		cronEnableCmd(cronStorePath, false)
+		cronEnableCmd(cronStorePath, false, loc)
 	case "disable":
-		cronEnableCmd(cronStorePath, true)
+		cronEnableCmd(cronStorePath, true, loc)
 	default:
 		fmt.Printf("Unknown cron command: %s\n", subcommand)
 		cronHelp()
@@ -1501,8 +1554,8 @@ func cronHelp() {
 	fmt.Println("  --channel        Channel for delivery")
 }
 
-func cronListCmd(storePath string) {
-	cs := cron.NewCronService(storePath, nil)
+func cronListCmd(storePath string, loc *time.Location) {
+	cs := cron.NewCronService(storePath, nil, loc)
 	jobs := cs.ListJobs(true) // Show all jobs, including disabled
 
 	if len(jobs) == 0 {
@@ -1540,7 +1593,7 @@ func cronListCmd(storePath string) {
 	}
 }
 
-func cronAddCmd(storePath string) {
+func cronAddCmd(storePath string, loc *time.Location) {
 	name := ""
 	message := ""
 	var everySec *int64
@@ -1618,7 +1671,7 @@ func cronAddCmd(storePath string) {
 		}
 	}
 
-	cs := cron.NewCronService(storePath, nil)
+	cs := cron.NewCronService(storePath, nil, loc)
 	job, err := cs.AddJob(name, schedule, message, deliver, channel, to)
 	if err != nil {
 		fmt.Printf("Error adding job: %v\n", err)
@@ -1628,8 +1681,8 @@ func cronAddCmd(storePath string) {
 	fmt.Printf("✓ Added job '%s' (%s)\n", job.Name, job.ID)
 }
 
-func cronRemoveCmd(storePath, jobID string) {
-	cs := cron.NewCronService(storePath, nil)
+func cronRemoveCmd(storePath, jobID string, loc *time.Location) {
+	cs := cron.NewCronService(storePath, nil, loc)
 	if cs.RemoveJob(jobID) {
 		fmt.Printf("✓ Removed job %s\n", jobID)
 	} else {
@@ -1637,14 +1690,14 @@ func cronRemoveCmd(storePath, jobID string) {
 	}
 }
 
-func cronEnableCmd(storePath string, disable bool) {
+func cronEnableCmd(storePath string, disable bool, loc *time.Location) {
 	if len(os.Args) < 4 {
 		fmt.Println("Usage: luckyclaw cron enable/disable <job_id>")
 		return
 	}
 
 	jobID := os.Args[3]
-	cs := cron.NewCronService(storePath, nil)
+	cs := cron.NewCronService(storePath, nil, loc)
 	enabled := !disable
 
 	job := cs.EnableJob(jobID, enabled)

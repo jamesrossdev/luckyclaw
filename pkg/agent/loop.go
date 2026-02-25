@@ -386,7 +386,9 @@ func (al *AgentLoop) runAgentLoop(ctx context.Context, opts processOptions) (str
 	)
 
 	// 3. Save user message to session
-	al.sessions.AddMessage(opts.SessionKey, "user", opts.UserMessage)
+	if !opts.NoHistory {
+		al.sessions.AddMessage(opts.SessionKey, "user", opts.UserMessage)
+	}
 
 	// 4. Run LLM iteration loop
 	finalContent, iteration, err := al.runLLMIteration(ctx, messages, opts)
@@ -403,8 +405,10 @@ func (al *AgentLoop) runAgentLoop(ctx context.Context, opts processOptions) (str
 	}
 
 	// 6. Save final assistant message to session
-	al.sessions.AddMessage(opts.SessionKey, "assistant", finalContent)
-	al.sessions.Save(opts.SessionKey)
+	if !opts.NoHistory {
+		al.sessions.AddMessage(opts.SessionKey, "assistant", finalContent)
+		al.sessions.Save(opts.SessionKey)
+	}
 
 	// 7. Optional: summarization
 	if opts.EnableSummary {
@@ -647,7 +651,9 @@ func (al *AgentLoop) runLLMIteration(ctx context.Context, messages []providers.M
 		messages = append(messages, assistantMsg)
 
 		// Save assistant message with tool calls to session
-		al.sessions.AddFullMessage(opts.SessionKey, assistantMsg)
+		if !opts.NoHistory {
+			al.sessions.AddFullMessage(opts.SessionKey, assistantMsg)
+		}
 
 		// Execute tool calls
 		for _, tc := range response.ToolCalls {
@@ -706,7 +712,9 @@ func (al *AgentLoop) runLLMIteration(ctx context.Context, messages []providers.M
 			messages = append(messages, toolResultMsg)
 
 			// Save tool result message to session
-			al.sessions.AddFullMessage(opts.SessionKey, toolResultMsg)
+			if !opts.NoHistory {
+				al.sessions.AddFullMessage(opts.SessionKey, toolResultMsg)
+			}
 		}
 	}
 
@@ -925,6 +933,10 @@ func (al *AgentLoop) summarizeSession(sessionKey string) {
 	}
 
 	if len(validMessages) == 0 {
+		// Even if no messages were valid for summarization (e.g. all tool messages),
+		// we must still truncate to prevent an infinite optimization loop on the next turn.
+		al.sessions.TruncateHistory(sessionKey, 4)
+		al.sessions.Save(sessionKey)
 		return
 	}
 
@@ -967,7 +979,7 @@ func (al *AgentLoop) summarizeSession(sessionKey string) {
 
 // summarizeBatch summarizes a batch of messages.
 func (al *AgentLoop) summarizeBatch(ctx context.Context, batch []providers.Message, existingSummary string) (string, error) {
-	prompt := "Provide a concise summary of this conversation segment, preserving core context and key points.\n"
+	prompt := "Provide a concise summary of this conversation segment, preserving core context and key points.\nIMPORTANT: Do NOT include any timestamps, current times, or date references in the summary. These change every message and will be stale.\n"
 	if existingSummary != "" {
 		prompt += "Existing context: " + existingSummary + "\n"
 	}

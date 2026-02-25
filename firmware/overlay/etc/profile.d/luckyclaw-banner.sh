@@ -6,8 +6,8 @@ export PATH=$PATH:/usr/local/bin
 
 cat << 'BANNER'
 
- _               _           ____  _
-| |   _   _  ___| | ___   _ / ___|| | __ ___      __
+ _               _           ____ _
+| |   _   _  ___| | ___   _ / ___| | __ ___      __
 | |  | | | |/ __| |/ / | | | |   | |/ _` \ \ /\ / /
 | |__| |_| | (__|   <| |_| | |___| | (_| |\ V  V /
 |_____\__,_|\___|_|\_\\__, |\____|_|\__,_| \_/\_/
@@ -42,8 +42,9 @@ echo ""
 echo "  Commands:"
 echo "    luckyclaw status      — System status"
 echo "    luckyclaw onboard     — Setup wizard"
-echo "    luckyclaw gateway     — Start AI gateway"
-echo "    luckyclaw gateway -b  — Start in background"
+echo "    luckyclaw gateway     — Start interactive gateway"
+echo "    luckyclaw gateway -b  — Start background gateway"
 echo "    luckyclaw stop        — Stop gateway"
 echo "    luckyclaw restart     — Restart gateway"
+echo "    luckyclaw help        — View more commands"
 echo ""

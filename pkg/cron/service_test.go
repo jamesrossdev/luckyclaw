@@ -15,9 +15,9 @@ func TestSaveStore_FilePermissions(t *testing.T) {
 	tmpDir := t.TempDir()
 	storePath := filepath.Join(tmpDir, "cron", "jobs.json")
 
-	cs := NewCronService(storePath, nil)
+	service := NewCronService(storePath, nil, nil)
 
-	_, err := cs.AddJob("test", CronSchedule{Kind: "every", EveryMS: int64Ptr(60000)}, "hello", false, "cli", "direct")
+	_, err := service.AddJob("test", CronSchedule{Kind: "every", EveryMS: int64Ptr(60000)}, "hello", false, "cli", "direct")
 	if err != nil {
 		t.Fatalf("AddJob failed: %v", err)
 	}

@@ -225,9 +225,9 @@ func DefaultConfig() *Config {
 				RestrictToWorkspace: true,
 				Provider:            "openrouter",
 				Model:               "arcee-ai/trinity-large-preview:free",
-				MaxTokens:           4096,
+				MaxTokens:           8192,
 				Temperature:         0.7,
-				MaxToolIterations:   12,
+				MaxToolIterations:   15,
 			},
 		},
 		Channels: ChannelsConfig{

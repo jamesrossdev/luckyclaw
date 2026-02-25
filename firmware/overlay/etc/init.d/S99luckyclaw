@@ -1,0 +1,53 @@
+#!/bin/sh
+# LuckyClaw auto-start service
+# Memory-optimized for Luckfox Pico Plus (33MB usable RAM)
+
+DAEMON=/usr/bin/luckyclaw
+PIDFILE=/var/run/luckyclaw.pid
+LOGFILE=/var/log/luckyclaw.log
+CONFIGFILE=/oem/.luckyclaw/config.json
+
+# Go runtime memory limits (critical for 64MB DDR2)
+export GOGC=20
+export GOMEMLIMIT=8MiB
+export TZ=EAT-3
+export PATH=$PATH:/usr/bin:/usr/local/bin:/sbin:/bin
+
+# Ensure Telegram API resolves (fasthttp DNS timeout workaround)
+grep -q "api.telegram.org" /etc/hosts 2>/dev/null || \
+  echo "149.154.166.110 api.telegram.org" >> /etc/hosts
+
+case "$1" in
+  start)
+    # Check if config exists (user needs to run 'luckyclaw onboard' first)
+    if [ ! -f "$CONFIGFILE" ]; then
+      echo "LuckyClaw: No config found at $CONFIGFILE. Run 'luckyclaw onboard' first."
+      exit 0
+    fi
+    echo "Starting LuckyClaw..."
+    start-stop-daemon -S -b -m -p $PIDFILE \
+      -x $DAEMON -- gateway >> $LOGFILE 2>&1
+    
+    # Protect from OOM killer
+    sleep 1
+    if [ -f $PIDFILE ]; then
+      echo -200 > /proc/$(cat $PIDFILE)/oom_score_adj 2>/dev/null
+    fi
+    ;;
+  stop)
+    echo "Stopping LuckyClaw..."
+    start-stop-daemon -K -p $PIDFILE 2>/dev/null
+    killall -9 luckyclaw 2>/dev/null
+    rm -f $PIDFILE
+    ;;
+  restart)
+    $0 stop
+    sleep 2
+    $0 start
+    ;;
+  *)
+    echo "Usage: $0 {start|stop|restart}"
+    exit 1
+    ;;
+esac
+exit 0
