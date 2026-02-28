@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="assets/logo.jpg" alt="LuckyClaw" width="512">
+  <img src="assets/logo.png" alt="LuckyClaw" width="512">
 
   <h1>🦞 LuckyClaw: AI Assistant for Luckfox Pico</h1>
 
@@ -36,12 +36,9 @@ LuckyClaw is a purpose-built AI assistant for [Luckfox Pico](https://wiki.luckfo
 
 Download the latest firmware image from [GitHub Releases](https://github.com/jamesrossdev/luckyclaw/releases).
 
-Flash to your Luckfox Pico board using the [Luckfox flashing tool](https://wiki.luckfox.com/Luckfox-Pico/Luckfox-Pico-SD-Card-burn-image/):
+Follow our detailed documentation to flash the firmware to your board:
 
-```bash
-# On Linux, use SocToolKit or dd
-# On Windows, use the Luckfox burn tool
-```
+👉 **[LuckyClaw Flashing Guide (eMMC)](doc/FLASHING_GUIDE.md)**
 
 ### 2. Connect via SSH
 
@@ -62,7 +59,7 @@ You'll see the LuckyClaw banner:
 | |__| |_| | (__|   <| |_| | |___| | (_| |\ V  V /
 |_____\__,_|\___|_|\_\\__, |\____|_|\__,_| \_/\_/
                       |___/
-  🦞 luckyclaw v0.3.3
+  🦞 luckyclaw v0.2.0
 
   Gateway: running (PID 1234, 15MB)
   Memory:  33MB / 55MB available
@@ -362,11 +359,11 @@ If reminders were created but never fire, the cron service may not have started.
 tail -20 /var/log/luckyclaw.log
 ```
 
-Look for `✓ Cron service started`. If missing, the jobs.json file may be corrupted — v0.2.1+ handles this automatically.
+Look for `✓ Cron service started`. If missing, the jobs.json file may be corrupted — v0.2.0+ handles this automatically.
 
 ### Time is wrong
 
-LuckyClaw v0.3.3+ embeds its own timezone database and sets the timezone during onboarding. If the time is still wrong:
+LuckyClaw v0.2.0+ embeds its own timezone database and sets the timezone during onboarding. If the time is still wrong:
 
 1. **System clock**: Sync via NTP:
    ```bash
@@ -375,7 +372,7 @@ LuckyClaw v0.3.3+ embeds its own timezone database and sets the timezone during 
 
 2. **Timezone**: Re-run onboarding or set manually:
    ```bash
-   echo "export TZ='Africa/Nairobi'" > /etc/profile.d/timezone.sh
+   echo "export TZ='America/New_York'" > /etc/profile.d/timezone.sh
    ```
    Then restart the gateway: `luckyclaw restart`
 

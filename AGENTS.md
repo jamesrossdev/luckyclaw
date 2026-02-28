@@ -98,14 +98,25 @@ GOOS=linux GOARCH=arm GOARM=7 CGO_ENABLED=0 \
 ```
 
 ### Deploy to Device
+
+> **⚠️ IMPORTANT:** The binary MUST be deployed to `/usr/bin/luckyclaw` — this is where the init script
+> (`/etc/init.d/S99luckyclaw`) and PATH (`which luckyclaw`) expect it. Do NOT deploy to `/usr/local/bin/`.
+> The running process locks the file, so you must kill it before copying.
+
 ```bash
-sshpass -p 'luckfox' scp build/luckyclaw-linux-arm root@192.168.1.175:/usr/local/bin/luckyclaw
-sshpass -p 'luckfox' ssh root@192.168.1.175 "chmod +x /usr/local/bin/luckyclaw && luckyclaw version"
+# 1. Kill running process (required — scp fails if binary is locked)
+sshpass -p 'luckfox' ssh root@<IP> "killall -9 luckyclaw"
+
+# 2. Copy new binary to /usr/bin/ (NOT /usr/local/bin/)
+sshpass -p 'luckfox' scp build/luckyclaw-linux-arm root@<IP>:/usr/bin/luckyclaw
+
+# 3. Restart via init script and verify
+sshpass -p 'luckfox' ssh root@<IP> "chmod +x /usr/bin/luckyclaw && /etc/init.d/S99luckyclaw restart && sleep 2 && luckyclaw version"
 ```
 
 ### Test on Device
 ```bash
-sshpass -p 'luckfox' ssh root@192.168.1.175
+sshpass -p 'luckfox' ssh root@<IP>
 luckyclaw status      # Check everything
 luckyclaw gateway -b  # Start in background
 luckyclaw stop        # Stop cleanly

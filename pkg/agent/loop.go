@@ -56,6 +56,7 @@ type processOptions struct {
 	EnableSummary   bool   // Whether to trigger summarization
 	SendResponse    bool   // Whether to send response via bus
 	NoHistory       bool   // If true, don't load session history (for heartbeat)
+	HeartbeatMode   bool   // If true, exclude message/send_file tools from LLM
 }
 
 // createToolRegistry creates a tool registry with common tools.
@@ -259,6 +260,7 @@ func (al *AgentLoop) ProcessHeartbeat(ctx context.Context, content, channel, cha
 		EnableSummary:   false,
 		SendResponse:    false,
 		NoHistory:       true, // Don't load session history for heartbeat
+		HeartbeatMode:   true,
 	})
 }
 
@@ -401,7 +403,11 @@ func (al *AgentLoop) runAgentLoop(ctx context.Context, opts processOptions) (str
 
 	// 5. Handle empty response
 	if finalContent == "" {
-		finalContent = opts.DefaultResponse
+		if opts.UserMessage != "" {
+			finalContent = fmt.Sprintf("I wasn't able to answer: \"%s\". Please try again.", utils.Truncate(opts.UserMessage, 100))
+		} else {
+			finalContent = opts.DefaultResponse
+		}
 	}
 
 	// 6. Save final assistant message to session
@@ -453,6 +459,9 @@ func (al *AgentLoop) runLLMIteration(ctx context.Context, messages []providers.M
 
 		// Build tool definitions
 		providerToolDefs := al.tools.ToProviderDefs()
+		if opts.HeartbeatMode {
+			providerToolDefs = filterHeartbeatTools(providerToolDefs)
+		}
 
 		// Log LLM request details
 		logger.DebugCF("agent", "LLM request",
@@ -719,6 +728,17 @@ func (al *AgentLoop) runLLMIteration(ctx context.Context, messages []providers.M
 	}
 
 	return finalContent, iteration, nil
+}
+
+// filterHeartbeatTools removes tools that can send direct messages to users
+func filterHeartbeatTools(tools []providers.ToolDefinition) []providers.ToolDefinition {
+	filtered := make([]providers.ToolDefinition, 0, len(tools))
+	for _, t := range tools {
+		if t.Function.Name != "message" && t.Function.Name != "send_file" {
+			filtered = append(filtered, t)
+		}
+	}
+	return filtered
 }
 
 // updateToolContexts updates the context for tools that need channel/chatID info.

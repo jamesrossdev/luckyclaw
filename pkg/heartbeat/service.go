@@ -260,8 +260,12 @@ System Disk Status: %s
 You are a proactive AI assistant. This is a scheduled heartbeat check.
 Review the following tasks and execute any necessary actions using available skills.
 
-CRITICAL INSTRUCTION: If there are no tasks in HEARTBEAT.md requiring execution today (and you haven't executed any tools), and the System Status is Normal, respond ONLY with the exact string: HEARTBEAT_OK
-Do NOT output anything else. Do NOT generate a full report unless explicitly instructed by the tasks.
+CRITICAL INSTRUCTION: When ALL of the following are true, respond with ONLY the exact text HEARTBEAT_OK — nothing else, no extra information, no status summary:
+  1. System Status is Normal (disk, memory, network all healthy)
+  2. No tasks in HEARTBEAT.md require execution today
+  3. You have NOT executed any tools during this check
+
+If ANY issue, alert, anomaly, or task result needs reporting, do NOT include HEARTBEAT_OK anywhere in your response. Write a concise report instead.
 
 %s
 `, now, diskStatus, content)
