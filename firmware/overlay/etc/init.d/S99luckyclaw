@@ -8,8 +8,11 @@ LOGFILE=/var/log/luckyclaw.log
 CONFIGFILE=/oem/.luckyclaw/config.json
 
 # Go runtime memory limits (critical for 64MB DDR2)
+# GOGC=20 makes GC trigger at 20% heap growth (aggressive but prevents runaway)
+# GOMEMLIMIT=24MiB is a soft ceiling; set below total RAM (57MB) to leave room for OS/buffers
+# WARNING: setting GOMEMLIMIT too low (e.g. 8MiB) causes GC to spin at 100% CPU
 export GOGC=20
-export GOMEMLIMIT=8MiB
+export GOMEMLIMIT=24MiB
 export TZ=EAT-3
 export PATH=$PATH:/usr/bin:/usr/local/bin:/sbin:/bin
 

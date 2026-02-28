@@ -149,23 +149,27 @@ func (hs *HeartbeatService) executeHeartbeat() {
 	handler := hs.handler
 	if !hs.enabled || hs.stopChan == nil {
 		hs.mu.RUnlock()
+		logger.InfoC("heartbeat", "[AUDIT] executeHeartbeat: skipped (disabled or stopChan nil)")
 		return
 	}
 	hs.mu.RUnlock()
 
 	if !enabled {
+		logger.InfoC("heartbeat", "[AUDIT] executeHeartbeat: skipped (not enabled)")
 		return
 	}
 
-	logger.DebugC("heartbeat", "Executing heartbeat")
+	logger.InfoC("heartbeat", "[AUDIT] executeHeartbeat: START")
 
 	prompt := hs.buildPrompt()
 	if prompt == "" {
-		logger.InfoC("heartbeat", "No heartbeat prompt (HEARTBEAT.md empty or missing)")
+		logger.InfoC("heartbeat", "[AUDIT] executeHeartbeat: empty prompt, aborting")
+		hs.logInfo("No heartbeat prompt (HEARTBEAT.md empty or missing)")
 		return
 	}
 
 	if handler == nil {
+		logger.InfoC("heartbeat", "[AUDIT] executeHeartbeat: handler nil, aborting")
 		hs.logError("Heartbeat handler not configured")
 		return
 	}
@@ -175,14 +179,27 @@ func (hs *HeartbeatService) executeHeartbeat() {
 	channel, chatID := hs.parseLastChannel(lastChannel)
 
 	// Debug log for channel resolution
+	logger.InfoCF("heartbeat", "[AUDIT] Pre-handler", map[string]interface{}{
+		"channel": channel, "chatID": chatID, "lastChannel": lastChannel,
+	})
 	hs.logInfo("Resolved channel: %s, chatID: %s (from lastChannel: %s)", channel, chatID, lastChannel)
 
 	result := handler(prompt, channel, chatID)
 
 	if result == nil {
+		logger.InfoC("heartbeat", "[AUDIT] Post-handler: result is nil")
 		hs.logInfo("Heartbeat handler returned nil result")
 		return
 	}
+
+	// AUDIT: log every field of the result
+	logger.InfoCF("heartbeat", "[AUDIT] Post-handler result", map[string]interface{}{
+		"Silent":  result.Silent,
+		"IsError": result.IsError,
+		"Async":   result.Async,
+		"ForLLM":  truncateForLog(result.ForLLM, 150),
+		"ForUser": truncateForLog(result.ForUser, 150),
+	})
 
 	// Handle different result types
 	if result.IsError {
@@ -192,15 +209,12 @@ func (hs *HeartbeatService) executeHeartbeat() {
 
 	if result.Async {
 		hs.logInfo("Async task started: %s", result.ForLLM)
-		logger.InfoCF("heartbeat", "Async heartbeat task started",
-			map[string]interface{}{
-				"message": result.ForLLM,
-			})
 		return
 	}
 
 	// Check if silent
 	if result.Silent {
+		logger.InfoC("heartbeat", "[AUDIT] DROPPED: result.Silent=true — NOT sending to user")
 		hs.logInfo("Heartbeat OK - silent")
 		return
 	}
@@ -212,9 +226,18 @@ func (hs *HeartbeatService) executeHeartbeat() {
 	}
 
 	if strings.TrimSpace(content) == "HEARTBEAT_OK" {
+		logger.InfoC("heartbeat", "[AUDIT] DROPPED: exact HEARTBEAT_OK match — NOT sending to user")
 		hs.logInfo("Heartbeat OK - normal metrics, silent drop")
 		return
 	}
+
+	// LEAK PATH: if we reach here, the message WILL be sent to the user
+	logger.WarnCF("heartbeat", "[AUDIT] LEAK: Heartbeat message reaching sendResponse!", map[string]interface{}{
+		"content": truncateForLog(content, 200),
+		"Silent":  result.Silent,
+		"ForUser": truncateForLog(result.ForUser, 100),
+		"ForLLM":  truncateForLog(result.ForLLM, 100),
+	})
 
 	// Send result to user
 	if content != "" {
@@ -375,15 +398,31 @@ func (hs *HeartbeatService) logError(format string, args ...any) {
 	hs.log("ERROR", format, args...)
 }
 
-// log writes a message to the heartbeat log file
+// log writes a message to the heartbeat log file, with stderr fallback
 func (hs *HeartbeatService) log(level, format string, args ...any) {
 	logFile := filepath.Join(hs.workspace, "heartbeat.log")
-	f, err := os.OpenFile(logFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	message := fmt.Sprintf(format, args...)
+	timestamp := time.Now().Format("2006-01-02 15:04:05")
+	line := fmt.Sprintf("[%s] [%s] %s\n", timestamp, level, message)
+
+	f, err := os.OpenFile(logFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
 	if err != nil {
+		// Fallback: log to stderr and the structured logger so we don't silently lose entries
+		logger.WarnCF("heartbeat", "Failed to write heartbeat.log", map[string]interface{}{
+			"error":   err.Error(),
+			"message": message,
+		})
 		return
 	}
 	defer f.Close()
 
-	timestamp := time.Now().Format("2006-01-02 15:04:05")
-	fmt.Fprintf(f, "[%s] [%s] %s\n", timestamp, level, fmt.Sprintf(format, args...))
+	fmt.Fprint(f, line)
+}
+
+// truncateForLog truncates a string for safe logging
+func truncateForLog(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "..."
 }
