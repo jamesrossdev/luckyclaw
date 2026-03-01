@@ -30,3 +30,47 @@ Items listed here are planned enhancements that are not yet scheduled for implem
 
 **Benefit**: Dramatically simplifies the onboarding process for non-Windows users and allows for scripted/automated deployments.
 **Blocked by**: Reverse engineering of Rockchip protocols or integrating existing open-source alternatives like `rkdeveloptool`.
+
+## Performance Optimizations
+
+### Cache System Prompt Between Messages
+**Priority**: Medium
+**Description**: `BuildSystemPrompt()` in `pkg/agent/context.go` re-reads `SOUL.md`, `USER.md`, `AGENTS.md`, skills summaries, and memory context from disk on every message. These files rarely change. Caching the result with a file-modification-time check would eliminate repeated disk I/O and string allocations.
+
+**Benefit**: Eliminates ~5 file reads and ~10KB of string allocations per message. On the Luckfox's SPI NAND flash (slower than eMMC), this could save 5-10ms per message.
+
+### Cache Tool Provider Definitions
+**Priority**: Low
+**Description**: `al.tools.ToProviderDefs()` in `runLLMIteration` rebuilds the full tool definition JSON on every LLM iteration (up to 15 per message). The tool registry doesn't change at runtime, so this can be computed once at startup and cached.
+
+**Benefit**: Avoids rebuilding ~2KB of JSON schema per iteration. Minor memory saving but reduces GC pressure.
+
+### Use `json.Marshal` Instead of `json.MarshalIndent` for Session Save
+**Priority**: Low
+**Description**: `SessionManager.Save()` uses `json.MarshalIndent` for pretty-printing. This is ~2x slower than `json.Marshal` and produces larger files on flash storage.
+
+**Benefit**: Faster session saves, smaller session files on limited SPI NAND storage.
+
+### Pre-allocate HTTP Response Buffer
+**Priority**: Low
+**Description**: `HTTPProvider.Chat()` uses `io.ReadAll(resp.Body)` which starts with a small buffer and grows dynamically. Pre-allocating based on `Content-Length` header (when available) would reduce reallocations.
+
+**Benefit**: Fewer intermediate allocations during LLM response parsing.
+
+## Benchmark Tests
+
+### Add Performance Benchmarks to `make check`
+**Priority**: Medium
+**Description**: Introduce Go benchmark tests (`func BenchmarkXxx(b *testing.B)`) that measure the performance of critical hot-path functions. These should run as part of `make check` or as a separate `make bench` target. Proposed benchmarks:
+
+1. **`BenchmarkBuildSystemPrompt`** — Measures time to build the full system prompt from disk files. Baseline: should be <5ms.
+2. **`BenchmarkBuildMessages`** — Measures context assembly with varying history sizes (10, 50, 100 messages). Guards against regression as history grows.
+3. **`BenchmarkSessionSave`** — Measures JSON serialization + atomic write for sessions of varying sizes. Ensures save stays <50ms.
+4. **`BenchmarkToProviderDefs`** — Measures tool definition generation. Should be <1ms.
+5. **`BenchmarkForceCompression`** — Measures conversation compression performance. Critical for memory-constrained devices.
+6. **`BenchmarkGetHistory`** — Measures session history copy for varying message counts. Guards against O(n²) regressions.
+
+**Benefit**: Catches performance regressions early, provides baseline numbers for the Luckfox board, and validates that optimization PRs actually improve performance.
+
+**Blocked by**: Nothing. Can be implemented independently.
+

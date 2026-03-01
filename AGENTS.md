@@ -30,7 +30,7 @@ firmware/overlay/         ← Files baked into Luckfox firmware image
 |-----------|-------|--------|
 | Total RAM | 64MB DDR2 | Only ~33MB usable after kernel |
 | Usable RAM | ~33MB | Gateway uses 10-14MB, leaves 2-12MB free |
-| GOMEMLIMIT | 8MiB | Baked into binary via `applyPerformanceDefaults()` |
+| GOMEMLIMIT | 24MiB | Set in init script; binary default is 8MiB but overridden |
 | GOGC | 20 | Aggressive GC to prevent RSS growth |
 | Flash | 128MB SPI NAND | Limited storage, no swap |
 | CPU | ARM Cortex-A7 (RV1103) | Single core, GOARM=7 |
@@ -39,12 +39,12 @@ firmware/overlay/         ← Files baked into Luckfox firmware image
 
 ### What We Changed
 - **Onboarding**: Simplified to OpenRouter only (was 7 provider choices)
-- **Performance**: Baked `GOGC=20` + `GOMEMLIMIT=8MiB` into binary
+- **Performance**: Baked `GOGC=20` into binary; init script sets `GOMEMLIMIT=24MiB`
 - **CLI**: Added `luckyclaw stop`, `restart`, `gateway -b` (background)
 - **Init script**: Auto-starts gateway on boot with OOM protection
 - **SSH banner**: Shows ASCII art, status, memory, all commands on login
 - **Default model**: `google/gemini-2.0-flash-exp:free` (free tier)
-- **Defaults**: `max_tokens=4096`, `max_tool_iterations=10` (was 8192/20)
+- **Defaults**: `max_tokens=8192`, `max_tool_iterations=10` (was 8192/20 upstream)
 
 ### What We Did NOT Change
 All PicoClaw channels (Telegram, Discord, QQ, LINE, Slack, WhatsApp, etc.) and tools remain in the codebase. Users can configure any provider via `config.json` directly.
@@ -58,7 +58,7 @@ Go allocates ~500MB virtual memory (lazy reservations). The Linux OOM killer use
 The `loadStore()` function in `pkg/cron/service.go` panicked on empty or corrupted `jobs.json`. **Fix**: Added graceful handling — treats empty/corrupt files as fresh state.
 
 ### 3. Init Script Must Bake Environment Variables
-The init script at `/etc/init.d/S99luckyclaw` MUST export `GOGC=20`, `GOMEMLIMIT=8MiB`, and `TZ` before starting the daemon. Without these, the binary runs with Go defaults and immediately OOMs.
+The init script at `/etc/init.d/S99luckyclaw` MUST export `GOGC=20`, `GOMEMLIMIT=24MiB`, and `TZ` before starting the daemon. Without these, the binary runs with Go defaults and immediately OOMs. WARNING: setting GOMEMLIMIT too low (e.g. 8MiB) causes the GC to spin at 100% CPU.
 
 ### 4. Busybox Limitations
 Luckfox uses Busybox. `wget` doesn't support HTTPS. `sudo` doesn't exist—you're already root. `curl` isn't available. The Go binary handles all HTTPS via `net/http`.
@@ -67,7 +67,7 @@ Luckfox uses Busybox. `wget` doesn't support HTTPS. `sudo` doesn't exist—you'r
 Telegram API DNS (`api.telegram.org`) sometimes fails to resolve. The init script adds a static entry to `/etc/hosts`.
 
 ### 6. Don't Add Unnecessary Dependencies
-Every byte counts. The binary is already ~15MB stripped. Adding dependencies increases memory usage. Always test with `GOMEMLIMIT=8MiB`.
+Every byte counts. The binary is already ~15MB stripped. Adding dependencies increases memory usage. Always test with `GOMEMLIMIT=24MiB`.
 
 ### 7. AI Agent Access to the Device
 If you are an AI agent and need to test changes, examine logs, or execute commands directly on the Luckfox Pico hardware, **do not guess the IP or password**. Simply ask the user to provide the SSH IP address and password for the device, and use the `run_command` tool via `sshpass` (e.g., `sshpass -p <password> ssh root@<ip>`).
