@@ -28,8 +28,11 @@ case "$1" in
       exit 0
     fi
     echo "Starting LuckyClaw..."
+    # NOTE: start-stop-daemon -b redirects fd 0/1/2 to /dev/null BEFORE
+    # shell redirection takes effect, making >> $LOGFILE 2>&1 useless.
+    # Use sh -c wrapper to daemonize with proper log capture instead.
     start-stop-daemon -S -b -m -p $PIDFILE \
-      -x $DAEMON -- gateway >> $LOGFILE 2>&1
+      -x /bin/sh -- -c "exec $DAEMON gateway >> $LOGFILE 2>&1"
     
     # Protect from OOM killer
     sleep 1

@@ -261,8 +261,8 @@ func (hs *HeartbeatService) buildPrompt() string {
 		return ""
 	}
 
-	content := string(data)
-	if len(content) == 0 {
+	content := strings.TrimSpace(string(data))
+	if content == "" {
 		return ""
 	}
 

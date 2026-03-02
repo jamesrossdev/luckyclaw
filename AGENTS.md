@@ -81,6 +81,14 @@ If you are an AI agent, you **MUST NEVER** execute code changes, environment mod
 ### 10. Multiple Daemon Instances & PID Tracking
 If `luckyclaw gateway -b` is executed while a daemon started by `/etc/init.d/S99luckyclaw` is already running it will overwrite the `/var/run/luckyclaw.pid` file. Because the init script only tracks the latest PID, subsequent `stop` or `restart` commands will leave the original daemon alive as a zombie, causing duplicate Telegram processing and hallucinated timestamps in session memory. **Fix:** Going forward, making sure we strictly append `&& killall -9 luckyclaw` alongside the init script (which I've started doing in my deploy commands) completely eliminates the possibility of this happening again.
 
+### 11. PicoClaw Upstream Reference
+A shallow clone of the upstream PicoClaw repo is kept at `picoclaw-latest/` (gitignored). This is used for comparing upstream changes and evaluating code worth porting. To refresh it: `cd picoclaw-latest && git pull`. Do not commit this directory.
+
+### 12. Log File Destinations & Workspace Paths
+- **Gateway log**: `/var/log/luckyclaw.log` (stdout/stderr from the init script). The init script uses an `sh -c "exec ..."` wrapper because BusyBox's `start-stop-daemon -b` redirects fds to `/dev/null` before shell redirects take effect.
+- **Heartbeat log**: `<workspace>/heartbeat.log` (written directly by the heartbeat service, not stdout).
+- **Runtime workspace**: `/oem/.luckyclaw/workspace/` — this is where the bot actually reads/writes data at runtime. The firmware overlay installs template files to `/root/.luckyclaw/workspace/` but these are NOT used at runtime because `luckyclaw onboard` creates its config at `/oem/`. Any default template changes must also be reflected in `createDefaultHeartbeatTemplate()` in `pkg/heartbeat/service.go`.
+
 ## Build & Deploy
 
 ### Testing Before Commits
