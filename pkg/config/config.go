@@ -385,11 +385,15 @@ func (c *Config) WorkspacePath() string {
 	// resolve relative to the config dir so workspace lives alongside config.
 	// e.g. config at /oem/.luckyclaw/config.json with workspace ~/.luckyclaw/workspace
 	//      → /oem/.luckyclaw/workspace (not /root/.luckyclaw/workspace)
+	//
+	// We strip only the leading "~" and preserve the rest of the path after it,
+	// then join with the parent of configDir (the /oem root) so the full structure
+	// is retained. Using filepath.Base would drop intermediate segments.
 	if c.configDir != "" && len(ws) > 2 && ws[0] == '~' && ws[1] == '/' {
-		// ws = "~/.luckyclaw/workspace" → suffix = "workspace"
-		// configDir = "/oem/.luckyclaw" → result = "/oem/.luckyclaw/workspace"
-		suffix := filepath.Base(ws)
-		return filepath.Join(c.configDir, suffix)
+		// ws[1:] = "/.luckyclaw/workspace"
+		// filepath.Dir(configDir) = "/oem"
+		// result = "/oem" + "/.luckyclaw/workspace" = "/oem/.luckyclaw/workspace" ✓
+		return filepath.Join(filepath.Dir(c.configDir), ws[1:])
 	}
 	return expandHome(ws)
 }
