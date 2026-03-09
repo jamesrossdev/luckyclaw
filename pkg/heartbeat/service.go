@@ -286,7 +286,7 @@ Review the following tasks and execute any necessary actions using available ski
 CRITICAL INSTRUCTION: When ALL of the following are true, respond with ONLY the exact text HEARTBEAT_OK — nothing else, no extra information, no status summary:
   1. System Status is Normal (disk, memory, network all healthy)
   2. No tasks in HEARTBEAT.md require execution today
-  3. You have NOT executed any tools during this check
+  3. All system checks returned normal/healthy results — no warnings, alerts, or anomalies
 
 If ANY issue, alert, anomaly, or task result needs reporting, do NOT include HEARTBEAT_OK anywhere in your response. Write a concise report instead.
 
