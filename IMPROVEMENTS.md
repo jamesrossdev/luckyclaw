@@ -20,9 +20,19 @@ Items listed here are planned enhancements that are not yet scheduled for implem
 
 **Benefit**: Prevents catastrophic session corruption when LLM APIs fail or large tool exchanges dominate a short time window.
 
-**Blocked by**: Needs to be submitted as a PR to the openclaw upstream repository.
+**Blocked by**: Should be submitted as a PR to the [picoclaw](https://github.com/sipeed/picoclaw) upstream repository.
+
+> **Status (checked 2026-03-09):** Bug confirmed still present in picoclaw-latest at `pkg/agent/loop.go` lines 1457-1459. The `len(validMessages) == 0` early return skips `TruncateHistory()`, causing the infinite loop. We fixed this in our fork but have not yet opened a PR.
 
 ## Installation / Deployment
+
+### OTA Binary Updates (No Reflash)
+**Priority**: Medium
+**Description**: The LuckyClaw binary at `/usr/bin/luckyclaw` can be replaced via SCP without reflashing the entire firmware, since user data lives on `/oem/.luckyclaw/` (a separate partition). An `luckyclaw update` command could check the GitHub Releases API for the latest version, download the matching ARM binary, replace itself, and restart — all without touching config, sessions, cron jobs, or memory.
+
+**Benefit**: Users can update without Windows, without SOCToolKit, and without losing any data. Dramatically lowers the friction of staying current.
+
+**Blocked by**: Needs a stable releases workflow publishing individual ARM binaries (not just full `.img` files). Also needs a version comparison check (`luckyclaw version` already embeds the version tag).
 
 ### Open-Source Cross-Platform Flashing Tool
 **Priority**: Low

@@ -1,54 +1,72 @@
 # LuckyClaw Flashing Guide (eMMC)
 
-This guide covers flashing the LuckyClaw firmware to a Luckfox Pico Plus/Pro board's eMMC storage using the Rockchip SOCToolKit on Windows.
+This guide covers flashing the LuckyClaw firmware to a Luckfox Pico board's eMMC storage using the Rockchip SOCToolKit on Windows.
 
-> **Note:** Currently, only eMMC flashing is supported by this guide. SPI NAND flashing instructions will be added in a future update.
+> [!NOTE]
+> We currently provide pre-built firmware images for **two board variants**:
+> - `luckyclaw-rv1103-vX.X.X.img` — for **Luckfox Pico Plus** (RV1103)
+> - `luckyclaw-rv1106-vX.X.X.img` — for **Luckfox Pico Pro Max** (RV1106)
+>
+> Download the image matching your board from the [Releases](https://github.com/jamesrossdev/luckyclaw/releases) page. The RV1103 image has been thoroughly tested. The RV1106 image is provided as-is and we welcome testers to confirm it works.
 
-> **Warning:** Flashing replaces the entire filesystem on the board. All existing configuration, memories, sessions, and cron jobs will be lost. If you are upgrading from a previous version, back up your data first -- see [Backup and Restore](BACKUP_RESTORE.md).
+> [!WARNING]
+> Flashing replaces the entire filesystem on the board. All existing configuration, memories, sessions, and cron jobs will be lost. If you are upgrading from a previous version, back up your data first — see [Backup and Restore](BACKUP_RESTORE.md).
 
 ## Prerequisites
 
 ### Hardware
 
-- Luckfox Pico Plus or Pro board
-- USB Type-C to Type-A cable (must be data capable, not charge-only)
+- Luckfox Pico Plus (RV1103) or Pico Pro Max (RV1106) board
+- USB Type-C to Type-A cable (must be **data capable**, not charge-only)
 - A computer running Windows
 
 ### Software and Files
 
-You need three things:
+All files are bundled together on the [Releases](https://github.com/jamesrossdev/luckyclaw/releases) page:
 
-1. **LuckyClaw firmware image** (`luckyclaw-vX.X.X.img`) -- download from the [LuckyClaw GitHub Releases](https://github.com/jamesrossdev/luckyclaw/releases) page.
+1. **LuckyClaw firmware image** — pick the `.img` that matches your board:
+   - `luckyclaw-rv1103-vX.X.X.img` for Luckfox Pico Plus
+   - `luckyclaw-rv1106-vX.X.X.img` for Luckfox Pico Pro Max
 
-2. **Rockchip Driver Assistant** -- installs the USB driver so Windows can communicate with the board in MaskROM mode.
+2. **Rockchip Driver Assistant** (`DriverAssistant_vX.X.zip`) — installs the USB driver so Windows can communicate with the board in MaskROM mode.
 
-3. **Rockchip SOCToolKit** -- the flashing utility that writes the firmware image to the board.
-
-Both Driver Assistant and SOCToolKit can be downloaded from the [Luckfox Downloads page](https://wiki.luckfox.com/Luckfox-Pico-RV1103/Downloads/#common-tools) under "Common Tools". Alternatively, the LuckyClaw release ZIP bundles both tools for convenience.
+3. **Rockchip SOCToolKit** (`SocToolKit_vX.XX.zip`) — the flashing utility that writes the firmware image to the board.
 
 ---
 
 ## Step 1: Install the USB Driver
 
-Before flashing, you must install the Rockchip USB driver on your Windows machine.
+Before flashing, you must install the Rockchip USB driver on your Windows machine. You only need to do this **once per computer**.
 
 1. Download and extract the **Driver Assistant** ZIP.
-2. Open the extracted folder and run `DriverInstall.exe`.
-3. Click **Install Driver**.
-4. Wait for the green checkmark confirming the driver was installed successfully.
+2. Open the extracted folder and **run `DriverInstall.exe` as Administrator**.
 
-You only need to do this once per computer. If you have already installed the driver previously, you can skip this step.
+![Open DriverAssistant folder and run DriverInstall](../assets/flashing/step-01-open-driver-folder.png)
+
+3. Click **Install Driver** in the dialog that appears.
+
+![Click Install Driver](../assets/flashing/step-01-click-install-driver.png)
+
+4. Windows Security will ask you to trust software from "Fuzhou Rockchip Electronics". **Check the box** to always trust this publisher, then click **Install**.
+
+![Trust the publisher and click Install](../assets/flashing/step-01-trust-publisher.png)
+
+5. Wait for the **"Install driver ok."** confirmation dialog, then click OK.
+
+![Driver installed successfully](../assets/flashing/step-01-install-success.png)
 
 ---
 
 ## Step 2: Open SOCToolKit
 
 1. Download and extract the **SOCToolKit** ZIP.
-2. Open the extracted folder and run `SocToolKit.exe`.
+2. Open the extracted folder, **right-click `SocToolKit.exe`**, and select **Run as administrator**.
 
-SOCToolKit is a portable application -- no installation is required.
+![Open SOCToolKit folder and run as admin](../assets/flashing/step-02-open-soctoolkit.png)
 
-![SOCToolKit Main Interface](../assets/flashing/step-01-soctoolkit-main.png)
+3. When SOCToolKit opens, it will ask you to select a chip. Choose **RV1103** (for Luckfox Pico Plus) or **RV1106** (for Pico Pro Max) from the dropdown, then click **OK**. Make sure **USB** is selected (not COM).
+
+![Select your chip — RV1103 or RV1106](../assets/flashing/step-02-chip-selection.png)
 
 ---
 
@@ -57,48 +75,35 @@ SOCToolKit is a portable application -- no installation is required.
 The board must be in MaskROM mode before it can be flashed.
 
 1. **Disconnect** the USB cable from the board if it is currently connected.
-2. Locate the **BOOT button** on the Luckfox Pico board (near the USB-C port).
+2. Locate the **BOOT button** on the board (near the USB-C port).
 3. **Press and hold** the BOOT button.
 4. While holding the BOOT button, plug the USB cable into the board and your computer.
-5. Wait 2-3 seconds, then **release** the BOOT button.
+5. Wait 2–3 seconds, then **release** the BOOT button.
 
-If successful, SOCToolKit will display a "Maskrom Device" in the device list at the bottom of the window.
+If successful, SOCToolKit will display a **"Maskrom"** device in the USB dropdown at the top of the window. The device number may vary from the screenshot.
 
-![MaskROM Device Detected](../assets/flashing/step-02-maskrom-device.png)
+> [!TIP]
+> Make sure the cable you are using is a **data cable** and not a charging-only cable. If no MaskROM device appears, try a different cable or USB port.
 
----
-
-## Step 4: Select the Firmware Image
-
-1. In SOCToolKit, navigate to the **Download Image** tab.
-2. Click the browse button next to the Firmware path field.
-3. Select the `luckyclaw-vX.X.X.img` file you downloaded.
-
-![Selecting firmware image](../assets/flashing/step-03-select-firmware.png)
+![MaskROM device detected](../assets/flashing/step-03-maskrom-detected.png)
 
 ---
 
-## Step 5: Flash the Board
+## Step 4: Select Firmware and Flash
 
-1. Confirm your device is still listed as a MaskROM device.
-2. Click the **Run** button.
-3. The flashing process will begin. A progress bar and log output will be shown. **Do not disconnect the cable during this process.**
+1. Click the **Firmware…** button at the bottom of the window.
+2. Browse to and select the `.img` file you downloaded (e.g. `luckyclaw-rv1103-v0.2.0.img`).
+3. Click **Upgrade** to begin flashing.
+4. **Do not disconnect the cable** during this process. The log panel on the right will show progress.
+5. When complete, the log will show **"Upgrade firmware ok."** and **"Upgrade luckyclaw-v0…OK"**.
 
-![Flashing in progress](../assets/flashing/step-04-flashing-progress.png)
+![Select firmware, click Upgrade, and wait for success](../assets/flashing/step-04-firmware-flash-success.png)
+
+The board will reboot automatically. If it does not, unplug and replug the USB cable (without holding the BOOT button).
 
 ---
 
-## Step 6: Completion
-
-Once the progress reaches 100%, you should see a success message.
-
-1. The board will reboot automatically.
-2. If it does not, unplug and replug the USB cable (without holding the BOOT button).
-3. The board is now running LuckyClaw.
-
-![Flashing successful](../assets/flashing/step-05-success.png)
-
-### First-Time Setup
+## Step 5: First-Time Setup
 
 After the board boots, connect to it via SSH and run the onboarding wizard:
 
@@ -107,7 +112,7 @@ ssh root@<DEVICE_IP>
 luckyclaw onboard
 ```
 
-The wizard will walk you through configuring your LLM provider, API key, Telegram bot token, and other settings. For full setup instructions, see the [README](../README.md).
+The wizard will walk you through configuring your LLM provider, API key, Telegram/Discord bot tokens, and other settings. For full setup instructions, see the [README](../README.md).
 
 ### Restoring Previous Data
 
@@ -118,11 +123,12 @@ If you backed up your data before flashing, follow the [Backup and Restore](BACK
 ## Troubleshooting
 
 - **Device not detected in SOCToolKit:** Ensure you are using a data-capable USB cable. Try a different USB port. Make sure you held the BOOT button before and during cable insertion. Verify that Driver Assistant was installed successfully.
-- **Flashing fails partway through:** This is often caused by a loose USB connection or a faulty cable. Try a different cable.
+- **Flashing fails partway through:** Often caused by a loose USB connection or a faulty cable. Try a different cable.
 - **"Test Device Fail" error:** The board may have exited MaskROM mode. Repeat the BOOT button sequence from Step 3.
+- **Wrong chip selected:** If you selected RV1103 but have an RV1106 board (or vice versa), close SOCToolKit, reopen it, and select the correct chip.
 
 ## Further Reading
 
-- [Official Luckfox Pico burning instructions](https://wiki.luckfox.com/Luckfox-Pico/Luckfox-Pico-quick-start/image-burn)
-- [Backup and Restore](BACKUP_RESTORE.md) -- preserve your data before reflashing
-- [LuckyClaw README](../README.md) -- full project documentation
+- [Official Luckfox burning instructions](https://wiki.luckfox.com/Luckfox-Pico/Luckfox-Pico-quick-start/image-burn)
+- [Backup and Restore](BACKUP_RESTORE.md) — preserve your data before reflashing
+- [LuckyClaw README](../README.md) — full project documentation

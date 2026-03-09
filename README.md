@@ -6,7 +6,7 @@
   <h3>One-stop AI firmware for Luckfox Pico boards</h3>
 
   <p>
-    <img src="https://img.shields.io/badge/Go-1.22+-00ADD8?style=flat&logo=go&logoColor=white" alt="Go">
+    <img src="https://img.shields.io/badge/Go-1.25+-00ADD8?style=flat&logo=go&logoColor=white" alt="Go">
     <img src="https://img.shields.io/badge/Board-Luckfox_Pico-orange" alt="Board">
     <img src="https://img.shields.io/badge/license-MIT-green" alt="License">
   </p>
@@ -84,7 +84,7 @@ The wizard walks you through:
 1. **API Provider** — OpenRouter - but you can manually set up OpenAI, Anthropic, Ollama and others in config.json
 2. **API Key** — Paste your key, it's validated in real-time
 3. **Timezone** — Explicitly enter your IANA Zone classification via the [Wikipedia TZ Database List](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones#List) 
-4. **Messaging** — Optionally set up Telegram (Discord, WhatsApp, and others coming soon)
+4. **Messaging** — Optionally set up Telegram and/or Discord
 5. **Start gateway** — Optionally start the AI gateway in the background
 
 ### 4. Chat!
@@ -96,7 +96,7 @@ luckyclaw agent -m "What time is it?"
 # Interactive mode
 luckyclaw agent
 
-# Or use Telegram (if configured)
+# Or use Telegram/Discord (if configured)
 # Just message your bot!
 ```
 
@@ -104,12 +104,12 @@ luckyclaw agent
 
 ## 💬 Chat Channels
 
-| Channel      | Status     | Setup                      |
-| ------------ | ---------- | -------------------------- |
-| **Telegram** | ✅ Ready   | Token from @BotFather      |
-| **Discord**  | ✅ Ready   | Bot token + intents        |
-| **WhatsApp** | 🔜 Planned | —                          |
-| **Slack**    | 🔜 Planned | —                          |
+| Channel      | Status              | Setup                      |
+| ------------ | ------------------- | -------------------------- |
+| **Telegram** | ✅ Ready             | Token from @BotFather      |
+| **Discord**  | ✅ Ready             | Bot token + intents        |
+| **WhatsApp** | 🚧 Work in Progress | —                          |
+| **Slack**    | 🧬 Inherited (untested) | —                       |
 
 <details>
 <summary><b>Telegram Setup</b> (Recommended)</summary>
@@ -248,7 +248,7 @@ To allow system-wide access (use with caution):
 
 ### Prerequisites
 
-- Go 1.22+
+- Go 1.25+
 - [Luckfox Pico SDK](https://github.com/LuckfoxTECH/luckfox-pico) (for firmware builds)
 - ARM cross-compilation toolchain (included in the SDK)
 
@@ -288,7 +288,7 @@ firmware/overlay/
 ├── root/.luckyclaw/
 │   ├── config.json               # Default config
 │   └── workspace/                # Default workspace files
-└── usr/local/bin/luckyclaw       # The binary
+└── usr/bin/luckyclaw             # The binary
 ```
 
 To build a firmware image:
@@ -296,7 +296,7 @@ To build a firmware image:
 1. **Build the ARM binary**: `make build-arm`
 2. **Clone the SDK**: `git clone https://github.com/LuckfoxTECH/luckfox-pico.git luckfox-pico-sdk`
 3. **Copy overlay**: `cp -r firmware/overlay/* luckfox-pico-sdk/project/cfg/BoardConfig_IPC/overlay/luckyclaw-overlay/`
-4. **Copy binary**: `cp build/luckyclaw-linux-arm luckfox-pico-sdk/project/cfg/BoardConfig_IPC/overlay/luckyclaw-overlay/usr/local/bin/luckyclaw`
+4. **Copy binary**: `cp build/luckyclaw-linux-arm luckfox-pico-sdk/project/cfg/BoardConfig_IPC/overlay/luckyclaw-overlay/usr/bin/luckyclaw`
 5. **Build image**:
    ```bash
    cd luckfox-pico-sdk
@@ -326,7 +326,7 @@ luckyclaw/
 
 ### Performance tuning
 
-LuckyClaw automatically sets `GOGC=20` and `GOMEMLIMIT=8MiB` at startup for memory-constrained boards. These can be overridden via environment variables if your board has more RAM.
+LuckyClaw automatically sets `GOGC=20` and `GOMEMLIMIT=24MiB` at startup for memory-constrained boards. These can be overridden via environment variables if your board has more RAM.
 
 ---
 
@@ -338,7 +338,7 @@ LuckyClaw v0.2+ automatically caps memory usage. If you're on an older version o
 
 ```bash
 export GOGC=20
-export GOMEMLIMIT=8MiB
+export GOMEMLIMIT=24MiB
 luckyclaw gateway
 ```
 
