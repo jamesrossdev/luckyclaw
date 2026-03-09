@@ -52,6 +52,7 @@ type Config struct {
 	Heartbeat HeartbeatConfig `json:"heartbeat"`
 	Devices   DevicesConfig   `json:"devices"`
 	mu        sync.RWMutex
+	configDir string // directory containing the config file, used to resolve workspace paths
 }
 
 type AgentsConfig struct {
@@ -225,9 +226,9 @@ func DefaultConfig() *Config {
 				RestrictToWorkspace: true,
 				Provider:            "openrouter",
 				Model:               "arcee-ai/trinity-large-preview:free",
-				MaxTokens:           8192,
+				MaxTokens:           16384,
 				Temperature:         0.7,
-				MaxToolIterations:   15,
+				MaxToolIterations:   25,
 			},
 		},
 		Channels: ChannelsConfig{
@@ -338,6 +339,7 @@ func DefaultConfig() *Config {
 
 func LoadConfig(path string) (*Config, error) {
 	cfg := DefaultConfig()
+	cfg.configDir = filepath.Dir(path)
 
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -378,7 +380,18 @@ func SaveConfig(path string, cfg *Config) error {
 func (c *Config) WorkspacePath() string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	return expandHome(c.Agents.Defaults.Workspace)
+	ws := c.Agents.Defaults.Workspace
+	// If workspace starts with ~/ and we know the config directory,
+	// resolve relative to the config dir so workspace lives alongside config.
+	// e.g. config at /oem/.luckyclaw/config.json with workspace ~/.luckyclaw/workspace
+	//      → /oem/.luckyclaw/workspace (not /root/.luckyclaw/workspace)
+	if c.configDir != "" && len(ws) > 2 && ws[0] == '~' && ws[1] == '/' {
+		// ws = "~/.luckyclaw/workspace" → suffix = "workspace"
+		// configDir = "/oem/.luckyclaw" → result = "/oem/.luckyclaw/workspace"
+		suffix := filepath.Base(ws)
+		return filepath.Join(c.configDir, suffix)
+	}
+	return expandHome(ws)
 }
 
 func (c *Config) GetAPIKey() string {

@@ -59,7 +59,7 @@ func (t *CronTool) Parameters() map[string]interface{} {
 			},
 			"message": map[string]interface{}{
 				"type":        "string",
-				"description": "The reminder/task message to display when triggered. If 'command' is used, this describes what the command does.",
+				"description": "The reminder/task message to display when triggered. Use a clear, actionable text. Do NOT include timing info in the message (e.g., '5 min reminder') — the system handles timing automatically.",
 			},
 			"command": map[string]interface{}{
 				"type":        "string",
@@ -67,15 +67,19 @@ func (t *CronTool) Parameters() map[string]interface{} {
 			},
 			"at_seconds": map[string]interface{}{
 				"type":        "integer",
-				"description": "One-time reminder: seconds from NOW to trigger. Use ONLY for relative time offsets (e.g., 'in 10 minutes' → 600, 'in 1 hour' → 3600). Do NOT use for specific clock times like 'at 7am' — use cron_expr instead.",
+				"description": "One-time reminder: seconds from NOW to trigger. Use ONLY for relative time offsets (e.g., 'in 10 minutes' → 600, 'in 1 hour' → 3600). Do NOT use for specific clock times like 'at 7am' — use cron_expr instead. For multiple staggered one-time reminders, create multiple jobs with different at_seconds values.",
 			},
 			"every_seconds": map[string]interface{}{
 				"type":        "integer",
-				"description": "Recurring interval in seconds with NO clock anchor (e.g., 3600 for every hour). Use ONLY when no specific time-of-day is mentioned (e.g., 'every 2 hours', 'every 30 minutes'). Do NOT use for 'daily at 7am' — use cron_expr='0 7 * * *' instead.",
+				"description": "Recurring interval in seconds (e.g., 300 for every 5 minutes). For bounded recurrence like 'every 5 min for 30 min', combine with max_runs (e.g., every_seconds=300, max_runs=6). Do NOT create multiple separate jobs for the same recurring task — use ONE job with max_runs instead. Do NOT use for 'daily at 7am' — use cron_expr='0 7 * * *' instead.",
 			},
 			"cron_expr": map[string]interface{}{
 				"type":        "string",
 				"description": "Standard 5-field cron expression (minute hour day month weekday). Use this for ANY schedule at a specific clock time. Examples: daily at 7am → '0 7 * * *', weekdays at 9:30am → '30 9 * * 1-5', every day at 6:15pm → '15 18 * * *'. This is the PREFERRED method for daily alarms and time-anchored reminders.",
+			},
+			"max_runs": map[string]interface{}{
+				"type":        "integer",
+				"description": "Maximum number of times to run before auto-deleting. Use for bounded recurring tasks: 'every 5 min for 30 min' → every_seconds=300, max_runs=6. Default: 0 (unlimited). Only meaningful with every_seconds or cron_expr.",
 			},
 			"job_id": map[string]interface{}{
 				"type":        "string",
@@ -173,11 +177,13 @@ func (t *CronTool) addJob(args map[string]interface{}) *ToolResult {
 
 	command, _ := args["command"].(string)
 	if command != "" {
-		// Commands must be processed by agent/exec tool, so deliver must be false (or handled specifically)
-		// Actually, let's keep deliver=false to let the system know it's not a simple chat message
-		// But for our new logic in ExecuteJob, we can handle it regardless of deliver flag if Payload.Command is set.
-		// However, logically, it's not "delivered" to chat directly as is.
 		deliver = false
+	}
+
+	// Read max_runs parameter
+	maxRuns := 0
+	if mr, ok := args["max_runs"].(float64); ok {
+		maxRuns = int(mr)
 	}
 
 	// Truncate message for job name (max 30 chars)
@@ -190,6 +196,7 @@ func (t *CronTool) addJob(args map[string]interface{}) *ToolResult {
 		deliver,
 		channel,
 		chatID,
+		maxRuns,
 	)
 	if err != nil {
 		return ErrorResult(fmt.Sprintf("Error adding job: %v", err))
@@ -205,7 +212,7 @@ func (t *CronTool) addJob(args map[string]interface{}) *ToolResult {
 }
 
 func (t *CronTool) listJobs() *ToolResult {
-	jobs := t.cronService.ListJobs(false)
+	jobs := t.cronService.ListJobs(true)
 
 	if len(jobs) == 0 {
 		return SilentResult("No scheduled jobs")
@@ -213,6 +220,10 @@ func (t *CronTool) listJobs() *ToolResult {
 
 	result := "Scheduled jobs:\n"
 	for _, j := range jobs {
+		status := "enabled"
+		if !j.Enabled {
+			status = "disabled"
+		}
 		var scheduleInfo string
 		if j.Schedule.Kind == "every" && j.Schedule.EveryMS != nil {
 			scheduleInfo = fmt.Sprintf("every %ds", *j.Schedule.EveryMS/1000)
@@ -223,7 +234,11 @@ func (t *CronTool) listJobs() *ToolResult {
 		} else {
 			scheduleInfo = "unknown"
 		}
-		result += fmt.Sprintf("- %s (id: %s, %s)\n", j.Name, j.ID, scheduleInfo)
+		progress := ""
+		if j.MaxRuns > 0 {
+			progress = fmt.Sprintf(" [run %d/%d]", j.RunCount, j.MaxRuns)
+		}
+		result += fmt.Sprintf("- %s (id: %s, %s, %s%s)\n", j.Name, j.ID, status, scheduleInfo, progress)
 	}
 
 	return SilentResult(result)

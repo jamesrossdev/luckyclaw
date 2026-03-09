@@ -28,6 +28,21 @@ case "$1" in
       exit 0
     fi
     echo "Starting LuckyClaw..."
+
+    # Wait for NTP to sync the system clock before starting.
+    # The Luckfox has no battery-backed RTC, so the clock starts at 1970
+    # on cold boot. TLS connections fail until NTP corrects it because
+    # certificates are "not yet valid". Discord's library does not retry
+    # after a TLS failure, so launching too early kills it permanently.
+    NTP_WAIT=0
+    while [ "$(date +%Y)" -lt 2025 ] && [ "$NTP_WAIT" -lt 30 ]; do
+      sleep 1
+      NTP_WAIT=$((NTP_WAIT + 1))
+    done
+    if [ "$(date +%Y)" -lt 2025 ]; then
+      echo "LuckyClaw: WARNING - System clock not synced after 30s, starting anyway"
+    fi
+
     # NOTE: start-stop-daemon -b redirects fd 0/1/2 to /dev/null BEFORE
     # shell redirection takes effect, making >> $LOGFILE 2>&1 useless.
     # Use sh -c wrapper to daemonize with proper log capture instead.

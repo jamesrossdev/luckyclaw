@@ -74,3 +74,16 @@ Items listed here are planned enhancements that are not yet scheduled for implem
 
 **Blocked by**: Nothing. Can be implemented independently.
 
+## Session Management
+
+### Configurable Summarization Thresholds
+**Priority**: Medium
+**Description**: Port `SummarizeMessageThreshold` and `SummarizeTokenPercent` from picoclaw upstream into our config struct. Currently hardcoded at 20 messages / 75% of context window in `loop.go`. Making these configurable allows users to tune conversation memory behavior without rebuilding.
+
+**Benefit**: Power users can trade token cost for longer conversation context, or reduce it on very small models.
+
+### Improved Token Estimator
+**Priority**: Low
+**Description**: Port `utf8.RuneCountInString` with 2.5 chars/token ratio from picoclaw upstream (vs our current `len` with 3 chars/token). More accurate for mixed-language content and CJK text.
+
+**Benefit**: Better context budget estimation, especially for non-English conversations.

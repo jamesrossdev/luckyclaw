@@ -44,7 +44,7 @@ firmware/overlay/         ← Files baked into Luckfox firmware image
 - **Init script**: Auto-starts gateway on boot with OOM protection
 - **SSH banner**: Shows ASCII art, status, memory, all commands on login
 - **Default model**: `google/gemini-2.0-flash-exp:free` (free tier)
-- **Defaults**: `max_tokens=8192`, `max_tool_iterations=10` (was 8192/20 upstream)
+- **Defaults**: `max_tokens=16384`, `max_tool_iterations=25` (tuned for web search headroom)
 
 ### What We Did NOT Change
 All PicoClaw channels (Telegram, Discord, QQ, LINE, Slack, WhatsApp, etc.) and tools remain in the codebase. Users can configure any provider via `config.json` directly.

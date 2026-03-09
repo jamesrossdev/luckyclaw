@@ -298,24 +298,28 @@ If ANY issue, alert, anomaly, or task result needs reporting, do NOT include HEA
 func (hs *HeartbeatService) createDefaultHeartbeatTemplate() {
 	heartbeatPath := filepath.Join(hs.workspace, "HEARTBEAT.md")
 
-	defaultContent := `# Heartbeat Check List
+	defaultContent := `# Heartbeat Tasks
 
-This file contains tasks for the heartbeat service to check periodically.
+Execute ALL tasks below every heartbeat cycle. Use shell commands for local data — do NOT waste API tokens on info available locally.
 
-## Examples
+## 1. Time & Date (local — use shell)
+- Run: ` + "`date '+%A, %B %d %Y — %I:%M %p %Z'`" + `
+- Note any upcoming reminders from memory files
 
-- Check for unread messages
-- Review active or scheduled jobs
-- Check device status (e.g., MaixCam or LuckFox)
+## 2. Device Health (local — use shell)
+- Run: ` + "`free -m | grep Mem`" + ` — report available memory
+- Run: ` + "`uptime`" + ` — report uptime and load
+- If available memory < 5MB, warn the user immediately
+
+## 3. Network (local — use shell)
+- Run: ` + "`ping -c 1 -W 2 8.8.8.8 > /dev/null 2>&1 && echo \"Online\" || echo \"OFFLINE\"`" + `
+- If offline, alert the user
 
 ## Instructions
-
-- Execute ALL tasks listed below. Do NOT skip any task.
-- For simple tasks (e.g., report current time), respond directly.
-- For complex tasks that may take time, use the spawn tool to create a subagent.
-- The spawn tool is async - subagent results will be sent to the user automatically.
-- After spawning a subagent, CONTINUE to process remaining tasks.
-- Only respond with HEARTBEAT_OK when ALL tasks are done AND nothing needs attention.
+- Use shell tool for ALL tasks above — they are local system checks
+- Keep responses brief — one line per task max
+- Only respond with HEARTBEAT_OK after ALL tasks are complete and nothing needs attention
+- If any task shows a problem, flag it clearly
 
 ---
 
