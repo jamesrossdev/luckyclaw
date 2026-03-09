@@ -149,23 +149,27 @@ func (hs *HeartbeatService) executeHeartbeat() {
 	handler := hs.handler
 	if !hs.enabled || hs.stopChan == nil {
 		hs.mu.RUnlock()
+		logger.InfoC("heartbeat", "[AUDIT] executeHeartbeat: skipped (disabled or stopChan nil)")
 		return
 	}
 	hs.mu.RUnlock()
 
 	if !enabled {
+		logger.InfoC("heartbeat", "[AUDIT] executeHeartbeat: skipped (not enabled)")
 		return
 	}
 
-	logger.DebugC("heartbeat", "Executing heartbeat")
+	logger.InfoC("heartbeat", "[AUDIT] executeHeartbeat: START")
 
 	prompt := hs.buildPrompt()
 	if prompt == "" {
-		logger.InfoC("heartbeat", "No heartbeat prompt (HEARTBEAT.md empty or missing)")
+		logger.InfoC("heartbeat", "[AUDIT] executeHeartbeat: empty prompt, aborting")
+		hs.logInfo("No heartbeat prompt (HEARTBEAT.md empty or missing)")
 		return
 	}
 
 	if handler == nil {
+		logger.InfoC("heartbeat", "[AUDIT] executeHeartbeat: handler nil, aborting")
 		hs.logError("Heartbeat handler not configured")
 		return
 	}
@@ -175,14 +179,27 @@ func (hs *HeartbeatService) executeHeartbeat() {
 	channel, chatID := hs.parseLastChannel(lastChannel)
 
 	// Debug log for channel resolution
+	logger.InfoCF("heartbeat", "[AUDIT] Pre-handler", map[string]interface{}{
+		"channel": channel, "chatID": chatID, "lastChannel": lastChannel,
+	})
 	hs.logInfo("Resolved channel: %s, chatID: %s (from lastChannel: %s)", channel, chatID, lastChannel)
 
 	result := handler(prompt, channel, chatID)
 
 	if result == nil {
+		logger.InfoC("heartbeat", "[AUDIT] Post-handler: result is nil")
 		hs.logInfo("Heartbeat handler returned nil result")
 		return
 	}
+
+	// AUDIT: log every field of the result
+	logger.InfoCF("heartbeat", "[AUDIT] Post-handler result", map[string]interface{}{
+		"Silent":  result.Silent,
+		"IsError": result.IsError,
+		"Async":   result.Async,
+		"ForLLM":  truncateForLog(result.ForLLM, 150),
+		"ForUser": truncateForLog(result.ForUser, 150),
+	})
 
 	// Handle different result types
 	if result.IsError {
@@ -192,15 +209,12 @@ func (hs *HeartbeatService) executeHeartbeat() {
 
 	if result.Async {
 		hs.logInfo("Async task started: %s", result.ForLLM)
-		logger.InfoCF("heartbeat", "Async heartbeat task started",
-			map[string]interface{}{
-				"message": result.ForLLM,
-			})
 		return
 	}
 
 	// Check if silent
 	if result.Silent {
+		logger.InfoC("heartbeat", "[AUDIT] DROPPED: result.Silent=true — NOT sending to user")
 		hs.logInfo("Heartbeat OK - silent")
 		return
 	}
@@ -212,9 +226,18 @@ func (hs *HeartbeatService) executeHeartbeat() {
 	}
 
 	if strings.TrimSpace(content) == "HEARTBEAT_OK" {
+		logger.InfoC("heartbeat", "[AUDIT] DROPPED: exact HEARTBEAT_OK match — NOT sending to user")
 		hs.logInfo("Heartbeat OK - normal metrics, silent drop")
 		return
 	}
+
+	// LEAK PATH: if we reach here, the message WILL be sent to the user
+	logger.WarnCF("heartbeat", "[AUDIT] LEAK: Heartbeat message reaching sendResponse!", map[string]interface{}{
+		"content": truncateForLog(content, 200),
+		"Silent":  result.Silent,
+		"ForUser": truncateForLog(result.ForUser, 100),
+		"ForLLM":  truncateForLog(result.ForLLM, 100),
+	})
 
 	// Send result to user
 	if content != "" {
@@ -238,8 +261,8 @@ func (hs *HeartbeatService) buildPrompt() string {
 		return ""
 	}
 
-	content := string(data)
-	if len(content) == 0 {
+	content := strings.TrimSpace(string(data))
+	if content == "" {
 		return ""
 	}
 
@@ -260,8 +283,12 @@ System Disk Status: %s
 You are a proactive AI assistant. This is a scheduled heartbeat check.
 Review the following tasks and execute any necessary actions using available skills.
 
-CRITICAL INSTRUCTION: If there are no tasks in HEARTBEAT.md requiring execution today (and you haven't executed any tools), and the System Status is Normal, respond ONLY with the exact string: HEARTBEAT_OK
-Do NOT output anything else. Do NOT generate a full report unless explicitly instructed by the tasks.
+CRITICAL INSTRUCTION: When ALL of the following are true, respond with ONLY the exact text HEARTBEAT_OK — nothing else, no extra information, no status summary:
+  1. System Status is Normal (disk, memory, network all healthy)
+  2. No tasks in HEARTBEAT.md require execution today
+  3. All system checks returned normal/healthy results — no warnings, alerts, or anomalies
+
+If ANY issue, alert, anomaly, or task result needs reporting, do NOT include HEARTBEAT_OK anywhere in your response. Write a concise report instead.
 
 %s
 `, now, diskStatus, content)
@@ -271,24 +298,28 @@ Do NOT output anything else. Do NOT generate a full report unless explicitly ins
 func (hs *HeartbeatService) createDefaultHeartbeatTemplate() {
 	heartbeatPath := filepath.Join(hs.workspace, "HEARTBEAT.md")
 
-	defaultContent := `# Heartbeat Check List
+	defaultContent := `# Heartbeat Tasks
 
-This file contains tasks for the heartbeat service to check periodically.
+Execute ALL tasks below every heartbeat cycle. Use shell commands for local data — do NOT waste API tokens on info available locally.
 
-## Examples
+## 1. Time & Date (local — use shell)
+- Run: ` + "`date '+%A, %B %d %Y — %I:%M %p %Z'`" + `
+- Note any upcoming reminders from memory files
 
-- Check for unread messages
-- Review active or scheduled jobs
-- Check device status (e.g., MaixCam or LuckFox)
+## 2. Device Health (local — use shell)
+- Run: ` + "`free -m | grep Mem`" + ` — report available memory
+- Run: ` + "`uptime`" + ` — report uptime and load
+- If available memory < 5MB, warn the user immediately
+
+## 3. Network (local — use shell)
+- Run: ` + "`ping -c 1 -W 2 8.8.8.8 > /dev/null 2>&1 && echo \"Online\" || echo \"OFFLINE\"`" + `
+- If offline, alert the user
 
 ## Instructions
-
-- Execute ALL tasks listed below. Do NOT skip any task.
-- For simple tasks (e.g., report current time), respond directly.
-- For complex tasks that may take time, use the spawn tool to create a subagent.
-- The spawn tool is async - subagent results will be sent to the user automatically.
-- After spawning a subagent, CONTINUE to process remaining tasks.
-- Only respond with HEARTBEAT_OK when ALL tasks are done AND nothing needs attention.
+- Use shell tool for ALL tasks above — they are local system checks
+- Keep responses brief — one line per task max
+- Only respond with HEARTBEAT_OK after ALL tasks are complete and nothing needs attention
+- If any task shows a problem, flag it clearly
 
 ---
 
@@ -371,15 +402,31 @@ func (hs *HeartbeatService) logError(format string, args ...any) {
 	hs.log("ERROR", format, args...)
 }
 
-// log writes a message to the heartbeat log file
+// log writes a message to the heartbeat log file, with stderr fallback
 func (hs *HeartbeatService) log(level, format string, args ...any) {
 	logFile := filepath.Join(hs.workspace, "heartbeat.log")
-	f, err := os.OpenFile(logFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	message := fmt.Sprintf(format, args...)
+	timestamp := time.Now().Format("2006-01-02 15:04:05")
+	line := fmt.Sprintf("[%s] [%s] %s\n", timestamp, level, message)
+
+	f, err := os.OpenFile(logFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
 	if err != nil {
+		// Fallback: log to stderr and the structured logger so we don't silently lose entries
+		logger.WarnCF("heartbeat", "Failed to write heartbeat.log", map[string]interface{}{
+			"error":   err.Error(),
+			"message": message,
+		})
 		return
 	}
 	defer f.Close()
 
-	timestamp := time.Now().Format("2006-01-02 15:04:05")
-	fmt.Fprintf(f, "[%s] [%s] %s\n", timestamp, level, fmt.Sprintf(format, args...))
+	fmt.Fprint(f, line)
+}
+
+// truncateForLog truncates a string for safe logging
+func truncateForLog(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "..."
 }

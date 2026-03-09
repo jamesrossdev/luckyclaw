@@ -123,7 +123,9 @@ Your workspace is at: %s
 
 2. **Be helpful and accurate** - When using tools, briefly explain what you're doing.
 
-3. **Memory** - When remembering something, write to %s/memory/MEMORY.md%s`,
+3. **Memory** - When remembering something, write to %s/memory/MEMORY.md
+
+4. **Include source links** - When presenting research or web search results, ALWAYS include the relevant URLs/links in your response so the user can follow up directly without having to ask.%s`,
 		timeStr, rt, workspacePath, workspacePath, workspacePath, workspacePath, toolsSection, workspacePath, iterBudget)
 }
 

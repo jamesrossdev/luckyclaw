@@ -624,3 +624,25 @@ func TestAgentLoop_ContextExhaustionRetry(t *testing.T) {
 		t.Errorf("Expected history to be compressed (len < 8), got %d", len(finalHistory))
 	}
 }
+
+// TestFilterHeartbeatTools verifies that messaging tools are removed
+func TestFilterHeartbeatTools(t *testing.T) {
+	tools := []providers.ToolDefinition{
+		{Function: providers.ToolFunctionDefinition{Name: "message"}},
+		{Function: providers.ToolFunctionDefinition{Name: "send_file"}},
+		{Function: providers.ToolFunctionDefinition{Name: "read_file"}},
+		{Function: providers.ToolFunctionDefinition{Name: "write_file"}},
+	}
+
+	filtered := filterHeartbeatTools(tools)
+
+	if len(filtered) != 2 {
+		t.Fatalf("Expected 2 tools, got %d", len(filtered))
+	}
+
+	for _, pt := range filtered {
+		if pt.Function.Name == "message" || pt.Function.Name == "send_file" {
+			t.Errorf("Tool %s should have been filtered out", pt.Function.Name)
+		}
+	}
+}

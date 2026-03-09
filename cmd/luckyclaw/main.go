@@ -420,30 +420,55 @@ func onboard() {
 		}
 	}
 
-	// Step 4: Telegram
+	// Step 4: Messaging Channels
 	fmt.Println()
-	fmt.Println("  Step 4: Telegram")
-	fmt.Println("  ──────────────────")
-	fmt.Println("  See README.md for setup instructions.")
+	fmt.Println("  Step 4: Messaging Channels")
+	fmt.Println("  ──────────────────────────")
+	fmt.Println("  Set up one or both chat channels. You can always configure these later")
+	fmt.Println("  by editing config.json or re-running 'luckyclaw onboard'.")
 	fmt.Println()
 
-	tgToken := promptLine("  Bot token (or Enter to skip): ")
-	if tgToken != "" {
-		fmt.Print("  Validating... ")
-		username, err := validateTelegramToken(tgToken)
-		if err != nil {
-			fmt.Printf("⚠ %v\n", err)
-			fmt.Println("  (Token saved anyway — check it later)")
-		} else {
-			fmt.Printf("✓ @%s\n", username)
+	// Telegram
+	if promptYN("  Set up Telegram?") {
+		fmt.Println()
+		fmt.Println("  Create a bot via @BotFather on Telegram, then paste the token below.")
+		tgToken := promptLine("  Telegram bot token: ")
+		if tgToken != "" {
+			fmt.Print("  Validating... ")
+			username, err := validateTelegramToken(tgToken)
+			if err != nil {
+				fmt.Printf("⚠ %v\n", err)
+				fmt.Println("  (Token saved anyway — check it later)")
+			} else {
+				fmt.Printf("✓ @%s\n", username)
+			}
+
+			cfg.Channels.Telegram.Enabled = true
+			cfg.Channels.Telegram.Token = tgToken
+
+			tgUserID := promptLine("  Your Telegram user ID (optional, from @userinfobot): ")
+			if tgUserID != "" {
+				cfg.Channels.Telegram.AllowFrom = config.FlexibleStringSlice{tgUserID}
+			}
 		}
+	}
 
-		cfg.Channels.Telegram.Enabled = true
-		cfg.Channels.Telegram.Token = tgToken
+	// Discord
+	fmt.Println()
+	if promptYN("  Set up Discord?") {
+		fmt.Println()
+		fmt.Println("  Create a bot at https://discord.com/developers/applications")
+		fmt.Println("  Enable MESSAGE CONTENT INTENT in Bot settings, then paste the token.")
+		dcToken := promptLine("  Discord bot token: ")
+		if dcToken != "" {
+			cfg.Channels.Discord.Enabled = true
+			cfg.Channels.Discord.Token = dcToken
 
-		tgUserID := promptLine("  Your Telegram user ID (optional): ")
-		if tgUserID != "" {
-			cfg.Channels.Telegram.AllowFrom = config.FlexibleStringSlice{tgUserID}
+			dcUserID := promptLine("  Your Discord user ID (optional): ")
+			if dcUserID != "" {
+				cfg.Channels.Discord.AllowFrom = config.FlexibleStringSlice{dcUserID}
+			}
+			fmt.Println("  ✓ Discord configured")
 		}
 	}
 
@@ -1672,7 +1697,7 @@ func cronAddCmd(storePath string, loc *time.Location) {
 	}
 
 	cs := cron.NewCronService(storePath, nil, loc)
-	job, err := cs.AddJob(name, schedule, message, deliver, channel, to)
+	job, err := cs.AddJob(name, schedule, message, deliver, channel, to, 0)
 	if err != nil {
 		fmt.Printf("Error adding job: %v\n", err)
 		return

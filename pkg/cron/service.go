@@ -48,6 +48,8 @@ type CronJob struct {
 	CreatedAtMS    int64        `json:"createdAtMs"`
 	UpdatedAtMS    int64        `json:"updatedAtMs"`
 	DeleteAfterRun bool         `json:"deleteAfterRun"`
+	MaxRuns        int          `json:"maxRuns,omitempty"` // 0 = unlimited
+	RunCount       int          `json:"runCount"`
 }
 
 type CronStore struct {
@@ -234,6 +236,7 @@ func (cs *CronService) executeJobByID(jobID string) {
 	}
 
 	job.State.LastRunAtMS = &startTime
+	job.RunCount++
 	job.UpdatedAtMS = time.Now().UnixMilli()
 
 	if err != nil {
@@ -242,6 +245,13 @@ func (cs *CronService) executeJobByID(jobID string) {
 	} else {
 		job.State.LastStatus = "ok"
 		job.State.LastError = ""
+	}
+
+	// Check if max_runs reached (auto-delete bounded recurring jobs)
+	if job.MaxRuns > 0 && job.RunCount >= job.MaxRuns {
+		log.Printf("[cron] job %s reached max_runs (%d/%d), removing", job.ID, job.RunCount, job.MaxRuns)
+		cs.removeJobUnsafe(job.ID)
+		return
 	}
 
 	// Compute next run time
@@ -382,7 +392,7 @@ func (cs *CronService) saveStoreUnsafe() error {
 	return os.WriteFile(cs.storePath, data, 0600)
 }
 
-func (cs *CronService) AddJob(name string, schedule CronSchedule, message string, deliver bool, channel, to string) (*CronJob, error) {
+func (cs *CronService) AddJob(name string, schedule CronSchedule, message string, deliver bool, channel, to string, maxRuns int) (*CronJob, error) {
 	cs.mu.Lock()
 	defer cs.mu.Unlock()
 
@@ -409,6 +419,7 @@ func (cs *CronService) AddJob(name string, schedule CronSchedule, message string
 		CreatedAtMS:    now,
 		UpdatedAtMS:    now,
 		DeleteAfterRun: deleteAfterRun,
+		MaxRuns:        maxRuns,
 	}
 
 	cs.store.Jobs = append(cs.store.Jobs, job)

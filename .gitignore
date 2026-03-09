@@ -46,3 +46,5 @@ tasks/
 # Added by goreleaser init:
 dist/
 IMPROVEMENTS.md
+CULL_CANDIDATES.md
+picoclaw-latest/

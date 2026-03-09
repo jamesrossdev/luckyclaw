@@ -56,6 +56,7 @@ type processOptions struct {
 	EnableSummary   bool   // Whether to trigger summarization
 	SendResponse    bool   // Whether to send response via bus
 	NoHistory       bool   // If true, don't load session history (for heartbeat)
+	HeartbeatMode   bool   // If true, exclude message/send_file tools from LLM
 }
 
 // createToolRegistry creates a tool registry with common tools.
@@ -259,6 +260,7 @@ func (al *AgentLoop) ProcessHeartbeat(ctx context.Context, content, channel, cha
 		EnableSummary:   false,
 		SendResponse:    false,
 		NoHistory:       true, // Don't load session history for heartbeat
+		HeartbeatMode:   true,
 	})
 }
 
@@ -401,7 +403,11 @@ func (al *AgentLoop) runAgentLoop(ctx context.Context, opts processOptions) (str
 
 	// 5. Handle empty response
 	if finalContent == "" {
-		finalContent = opts.DefaultResponse
+		if opts.UserMessage != "" {
+			finalContent = fmt.Sprintf("I wasn't able to answer: \"%s\". Please try again.", utils.Truncate(opts.UserMessage, 100))
+		} else {
+			finalContent = opts.DefaultResponse
+		}
 	}
 
 	// 6. Save final assistant message to session
@@ -453,6 +459,9 @@ func (al *AgentLoop) runLLMIteration(ctx context.Context, messages []providers.M
 
 		// Build tool definitions
 		providerToolDefs := al.tools.ToProviderDefs()
+		if opts.HeartbeatMode {
+			providerToolDefs = filterHeartbeatTools(providerToolDefs)
+		}
 
 		// Log LLM request details
 		logger.DebugCF("agent", "LLM request",
@@ -461,7 +470,7 @@ func (al *AgentLoop) runLLMIteration(ctx context.Context, messages []providers.M
 				"model":             al.model,
 				"messages_count":    len(messages),
 				"tools_count":       len(providerToolDefs),
-				"max_tokens":        8192,
+				"max_tokens":        al.contextWindow,
 				"temperature":       0.7,
 				"system_prompt_len": len(messages[0].Content),
 			})
@@ -481,7 +490,7 @@ func (al *AgentLoop) runLLMIteration(ctx context.Context, messages []providers.M
 		maxRetries := 2
 		for retry := 0; retry <= maxRetries; retry++ {
 			response, err = al.provider.Chat(ctx, messages, providerToolDefs, al.model, map[string]interface{}{
-				"max_tokens":  8192,
+				"max_tokens":  al.contextWindow,
 				"temperature": 0.7,
 			})
 
@@ -519,75 +528,13 @@ func (al *AgentLoop) runLLMIteration(ctx context.Context, messages []providers.M
 				newHistory := al.sessions.GetHistory(opts.SessionKey)
 				newSummary := al.sessions.GetSummary(opts.SessionKey)
 
-				// Re-create messages for the next attempt
-				// We keep the current user message (opts.UserMessage) effectively
+				// Rebuild from compressed session history.
+				// Pass empty currentMessage because step 3 of runAgentLoop already
+				// saved opts.UserMessage into session history — passing it again would duplicate it.
 				messages = al.contextBuilder.BuildMessages(
 					newHistory,
 					newSummary,
-					opts.UserMessage,
-					nil,
-					opts.Channel,
-					opts.ChatID,
-				)
-
-				// Important: If we are in the middle of a tool loop (iteration > 1),
-				// rebuilding messages from session history might duplicate the flow or miss context
-				// if intermediate steps weren't saved correctly.
-				// However, al.sessions.AddFullMessage is called after every tool execution,
-				// so GetHistory should reflect the current state including partial tool execution.
-				// But we need to ensure we don't duplicate the user message which is appended in BuildMessages.
-				// BuildMessages(history...) takes the stored history and appends the *current* user message.
-				// If iteration > 1, the "current user message" was already added to history in step 3 of runAgentLoop.
-				// So if we pass opts.UserMessage again, we might duplicate it?
-				// Actually, step 3 is: al.sessions.AddMessage(opts.SessionKey, "user", opts.UserMessage)
-				// So GetHistory ALREADY contains the user message!
-
-				// CORRECTION:
-				// BuildMessages combines: [System] + [History] + [CurrentMessage]
-				// But Step 3 added CurrentMessage to History.
-				// So if we use GetHistory now, it has the user message.
-				// If we pass opts.UserMessage to BuildMessages, it adds it AGAIN.
-
-				// For retry in the middle of a loop, we should rely on what's in the session.
-				// BUT checking BuildMessages implementation:
-				// It appends history... then appends currentMessage.
-
-				// Logic fix for retry:
-				// If iteration == 1, opts.UserMessage corresponds to the user input.
-				// If iteration > 1, we are processing tool results. The "messages" passed to Chat
-				// already accumulated tool outputs.
-				// Rebuilding from session history is safest because it persists state.
-				// Start fresh with rebuilt history.
-
-				// Special case: standard BuildMessages appends "currentMessage".
-				// If we are strictly retrying the *LLM call*, we want the exact same state as before but compressed.
-				// However, the "messages" argument passed to runLLMIteration is constructed by the caller.
-				// If we rebuild from Session, we need to know if "currentMessage" should be appended or is already in history.
-
-				// In runAgentLoop:
-				// 3. sessions.AddMessage(userMsg)
-				// 4. runLLMIteration(..., UserMessage)
-
-				// So History contains the user message.
-				// BuildMessages typically appends the user message as a *new* pending message.
-				// Wait, standard BuildMessages usage in runAgentLoop:
-				// messages := BuildMessages(history (has old), UserMessage)
-				// THEN AddMessage(UserMessage).
-				// So "history" passed to BuildMessages does NOT contain the current UserMessage yet.
-
-				// But here, inside the loop, we have already saved it.
-				// So GetHistory() includes the current user message.
-				// If we call BuildMessages(GetHistory(), UserMessage), we get duplicates.
-
-				// Hack/Fix:
-				// If we are retrying, we rebuild from Session History ONLY.
-				// We pass empty string as "currentMessage" to BuildMessages
-				// because the "current message" is already saved in history (step 3).
-
-				messages = al.contextBuilder.BuildMessages(
-					newHistory,
-					newSummary,
-					"", // Empty because history already contains the relevant messages
+					"", // Already in history from step 3
 					nil,
 					opts.Channel,
 					opts.ChatID,
@@ -721,6 +668,17 @@ func (al *AgentLoop) runLLMIteration(ctx context.Context, messages []providers.M
 	return finalContent, iteration, nil
 }
 
+// filterHeartbeatTools removes tools that can send direct messages to users
+func filterHeartbeatTools(tools []providers.ToolDefinition) []providers.ToolDefinition {
+	filtered := make([]providers.ToolDefinition, 0, len(tools))
+	for _, t := range tools {
+		if t.Function.Name != "message" && t.Function.Name != "send_file" {
+			filtered = append(filtered, t)
+		}
+	}
+	return filtered
+}
+
 // updateToolContexts updates the context for tools that need channel/chatID info.
 func (al *AgentLoop) updateToolContexts(channel, chatID string) {
 	// Use ContextualTool interface instead of type assertions
@@ -756,14 +714,7 @@ func (al *AgentLoop) maybeSummarize(sessionKey, channel, chatID string) {
 		if _, loading := al.summarizing.LoadOrStore(sessionKey, true); !loading {
 			go func() {
 				defer al.summarizing.Delete(sessionKey)
-				// Notify user about optimization if not an internal channel
-				if !constants.IsInternalChannel(channel) {
-					al.bus.PublishOutbound(bus.OutboundMessage{
-						Channel: channel,
-						ChatID:  chatID,
-						Content: "⚠️ Memory threshold reached. Optimizing conversation history...",
-					})
-				}
+				logger.Info("Memory threshold reached. Optimizing conversation history...")
 				al.summarizeSession(sessionKey)
 			}()
 		}
@@ -790,31 +741,24 @@ func (al *AgentLoop) forceCompression(sessionKey string) {
 	mid := len(conversation) / 2
 
 	// New history structure:
-	// 1. System Prompt
-	// 2. [Summary of dropped part] - synthesized
-	// 3. Second half of conversation
-	// 4. Last message
-
-	// Simplified approach for emergency: Drop first half of conversation
-	// and rely on existing summary if present, or create a placeholder.
+	// 1. System Prompt (with compression note appended)
+	// 2. Second half of conversation
+	// 3. Last message
 
 	droppedCount := mid
 	keptConversation := conversation[mid:]
 
-	newHistory := make([]providers.Message, 0)
-	newHistory = append(newHistory, history[0]) // System prompt
+	newHistory := make([]providers.Message, 0, 1+len(keptConversation)+1)
 
-	// Add a note about compression
-	compressionNote := fmt.Sprintf("[System: Emergency compression dropped %d oldest messages due to context limit]", droppedCount)
-	// If there was an existing summary, we might lose it if it was in the dropped part (which is just messages).
-	// The summary is stored separately in session.Summary, so it persists!
-	// We just need to ensure the user knows there's a gap.
-
-	// We only modify the messages list here
-	newHistory = append(newHistory, providers.Message{
-		Role:    "system",
-		Content: compressionNote,
-	})
+	// Append compression note to the original system prompt instead of adding a new system message
+	// This avoids having two consecutive system messages which some APIs reject
+	compressionNote := fmt.Sprintf(
+		"\n\n[System Note: Emergency compression dropped %d oldest messages due to context limit]",
+		droppedCount,
+	)
+	enhancedSystemPrompt := history[0]
+	enhancedSystemPrompt.Content = enhancedSystemPrompt.Content + compressionNote
+	newHistory = append(newHistory, enhancedSystemPrompt)
 
 	newHistory = append(newHistory, keptConversation...)
 	newHistory = append(newHistory, history[len(history)-1]) // Last message

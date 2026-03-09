@@ -1,14 +1,15 @@
 <div align="center">
-  <img src="assets/logo.jpg" alt="LuckyClaw" width="512">
+  <img src="assets/logo.png" alt="LuckyClaw" width="512">
 
   <h1>🦞 LuckyClaw: AI Assistant for Luckfox Pico</h1>
 
   <h3>One-stop AI firmware for Luckfox Pico boards</h3>
 
   <p>
-    <img src="https://img.shields.io/badge/Go-1.22+-00ADD8?style=flat&logo=go&logoColor=white" alt="Go">
+    <img src="https://img.shields.io/badge/Go-1.25+-00ADD8?style=flat&logo=go&logoColor=white" alt="Go">
     <img src="https://img.shields.io/badge/Board-Luckfox_Pico-orange" alt="Board">
     <img src="https://img.shields.io/badge/license-MIT-green" alt="License">
+    <a href="https://discord.gg/TRdD9dBe"><img src="https://img.shields.io/badge/Discord-Community-5865F2?logo=discord&logoColor=white" alt="Discord"></a>
   </p>
 </div>
 
@@ -32,16 +33,23 @@ LuckyClaw is a purpose-built AI assistant for [Luckfox Pico](https://wiki.luckfo
 
 ## ⚡ Quick Start (End Users)
 
+### Supported Boards
+
+| Board | Chip | Image |
+|-------|------|-------|
+| **Luckfox Pico Plus** | RV1103 | `luckyclaw-luckfox_pico_plus_rv1103-vX.X.X.img` |
+| **Luckfox Pico Pro Max** | RV1106 | `luckyclaw-luckfox_pico_pro_max_rv1106-vX.X.X.img` |
+
+> [!IMPORTANT]
+> LuckyClaw currently only supports these two boards. Other Luckfox variants (Pico Mini, Pico Zero, etc.) are untested and may not work.
+
 ### 1. Flash the firmware
 
-Download the latest firmware image from [GitHub Releases](https://github.com/jamesrossdev/luckyclaw/releases).
+Download the firmware image matching your board from [GitHub Releases](https://github.com/jamesrossdev/luckyclaw/releases).
 
-Flash to your Luckfox Pico board using the [Luckfox flashing tool](https://wiki.luckfox.com/Luckfox-Pico/Luckfox-Pico-SD-Card-burn-image/):
+Follow our detailed documentation to flash the firmware:
 
-```bash
-# On Linux, use SocToolKit or dd
-# On Windows, use the Luckfox burn tool
-```
+👉 **[LuckyClaw Flashing Guide (eMMC)](doc/FLASHING_GUIDE.md)**
 
 ### 2. Connect via SSH
 
@@ -62,7 +70,7 @@ You'll see the LuckyClaw banner:
 | |__| |_| | (__|   <| |_| | |___| | (_| |\ V  V /
 |_____\__,_|\___|_|\_\\__, |\____|_|\__,_| \_/\_/
                       |___/
-  🦞 luckyclaw v0.3.3
+  🦞 luckyclaw v0.2.0
 
   Gateway: running (PID 1234, 15MB)
   Memory:  33MB / 55MB available
@@ -87,7 +95,7 @@ The wizard walks you through:
 1. **API Provider** — OpenRouter - but you can manually set up OpenAI, Anthropic, Ollama and others in config.json
 2. **API Key** — Paste your key, it's validated in real-time
 3. **Timezone** — Explicitly enter your IANA Zone classification via the [Wikipedia TZ Database List](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones#List) 
-4. **Messaging** — Optionally set up Telegram (Discord, WhatsApp, and others coming soon)
+4. **Messaging** — Optionally set up Telegram and/or Discord
 5. **Start gateway** — Optionally start the AI gateway in the background
 
 ### 4. Chat!
@@ -99,7 +107,7 @@ luckyclaw agent -m "What time is it?"
 # Interactive mode
 luckyclaw agent
 
-# Or use Telegram (if configured)
+# Or use Telegram/Discord (if configured)
 # Just message your bot!
 ```
 
@@ -107,12 +115,12 @@ luckyclaw agent
 
 ## 💬 Chat Channels
 
-| Channel      | Status     | Setup                      |
-| ------------ | ---------- | -------------------------- |
-| **Telegram** | ✅ Ready   | Token from @BotFather      |
-| **Discord**  | ✅ Ready   | Bot token + intents        |
-| **WhatsApp** | 🔜 Planned | —                          |
-| **Slack**    | 🔜 Planned | —                          |
+| Channel      | Status              | Setup                      |
+| ------------ | ------------------- | -------------------------- |
+| **Telegram** | ✅ Ready             | Token from @BotFather      |
+| **Discord**  | ✅ Ready             | Bot token + intents        |
+| **WhatsApp** | 🚧 Work in Progress | —                          |
+| **Slack**    | 🧬 Inherited (untested) | —                       |
 
 <details>
 <summary><b>Telegram Setup</b> (Recommended)</summary>
@@ -251,7 +259,7 @@ To allow system-wide access (use with caution):
 
 ### Prerequisites
 
-- Go 1.22+
+- Go 1.25+
 - [Luckfox Pico SDK](https://github.com/LuckfoxTECH/luckfox-pico) (for firmware builds)
 - ARM cross-compilation toolchain (included in the SDK)
 
@@ -291,7 +299,7 @@ firmware/overlay/
 ├── root/.luckyclaw/
 │   ├── config.json               # Default config
 │   └── workspace/                # Default workspace files
-└── usr/local/bin/luckyclaw       # The binary
+└── usr/bin/luckyclaw             # The binary
 ```
 
 To build a firmware image:
@@ -299,7 +307,7 @@ To build a firmware image:
 1. **Build the ARM binary**: `make build-arm`
 2. **Clone the SDK**: `git clone https://github.com/LuckfoxTECH/luckfox-pico.git luckfox-pico-sdk`
 3. **Copy overlay**: `cp -r firmware/overlay/* luckfox-pico-sdk/project/cfg/BoardConfig_IPC/overlay/luckyclaw-overlay/`
-4. **Copy binary**: `cp build/luckyclaw-linux-arm luckfox-pico-sdk/project/cfg/BoardConfig_IPC/overlay/luckyclaw-overlay/usr/local/bin/luckyclaw`
+4. **Copy binary**: `cp build/luckyclaw-linux-arm luckfox-pico-sdk/project/cfg/BoardConfig_IPC/overlay/luckyclaw-overlay/usr/bin/luckyclaw`
 5. **Build image**:
    ```bash
    cd luckfox-pico-sdk
@@ -329,7 +337,7 @@ luckyclaw/
 
 ### Performance tuning
 
-LuckyClaw automatically sets `GOGC=20` and `GOMEMLIMIT=8MiB` at startup for memory-constrained boards. These can be overridden via environment variables if your board has more RAM.
+LuckyClaw automatically sets `GOGC=20` and `GOMEMLIMIT=24MiB` at startup for memory-constrained boards. These can be overridden via environment variables if your board has more RAM.
 
 ---
 
@@ -341,7 +349,7 @@ LuckyClaw v0.2+ automatically caps memory usage. If you're on an older version o
 
 ```bash
 export GOGC=20
-export GOMEMLIMIT=8MiB
+export GOMEMLIMIT=24MiB
 luckyclaw gateway
 ```
 
@@ -362,11 +370,11 @@ If reminders were created but never fire, the cron service may not have started.
 tail -20 /var/log/luckyclaw.log
 ```
 
-Look for `✓ Cron service started`. If missing, the jobs.json file may be corrupted — v0.2.1+ handles this automatically.
+Look for `✓ Cron service started`. If missing, the jobs.json file may be corrupted — v0.2.0+ handles this automatically.
 
 ### Time is wrong
 
-LuckyClaw v0.3.3+ embeds its own timezone database and sets the timezone during onboarding. If the time is still wrong:
+LuckyClaw v0.2.0+ embeds its own timezone database and sets the timezone during onboarding. If the time is still wrong:
 
 1. **System clock**: Sync via NTP:
    ```bash
@@ -375,11 +383,17 @@ LuckyClaw v0.3.3+ embeds its own timezone database and sets the timezone during 
 
 2. **Timezone**: Re-run onboarding or set manually:
    ```bash
-   echo "export TZ='Africa/Nairobi'" > /etc/profile.d/timezone.sh
+   echo "export TZ='America/New_York'" > /etc/profile.d/timezone.sh
    ```
    Then restart the gateway: `luckyclaw restart`
 
 ---
+
+## 💬 Community
+
+Join our Discord for help, feedback, and discussion:
+
+👉 **[LuckyClaw Discord](https://discord.gg/TRdD9dBe)**
 
 ## 🙏 Credits
 

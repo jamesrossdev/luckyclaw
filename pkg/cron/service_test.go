@@ -17,7 +17,7 @@ func TestSaveStore_FilePermissions(t *testing.T) {
 
 	service := NewCronService(storePath, nil, nil)
 
-	_, err := service.AddJob("test", CronSchedule{Kind: "every", EveryMS: int64Ptr(60000)}, "hello", false, "cli", "direct")
+	_, err := service.AddJob("test", CronSchedule{Kind: "every", EveryMS: int64Ptr(60000)}, "hello", false, "cli", "direct", 0)
 	if err != nil {
 		t.Fatalf("AddJob failed: %v", err)
 	}
