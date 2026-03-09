@@ -4,10 +4,13 @@ This guide covers flashing the LuckyClaw firmware to a Luckfox Pico board's eMMC
 
 > [!NOTE]
 > We currently provide pre-built firmware images for **two board variants**:
-> - `luckyclaw-rv1103-vX.X.X.img` — for **Luckfox Pico Plus** (RV1103)
-> - `luckyclaw-rv1106-vX.X.X.img` — for **Luckfox Pico Pro Max** (RV1106)
+> - `luckyclaw-luckfox_pico_plus_rv1103-vX.X.X.img` — for **Luckfox Pico Plus**
+> - `luckyclaw-luckfox_pico_pro_max_rv1106-vX.X.X.img` — for **Luckfox Pico Pro Max**
 >
-> Download the image matching your board from the [Releases](https://github.com/jamesrossdev/luckyclaw/releases) page. The RV1103 image has been thoroughly tested. The RV1106 image is provided as-is and we welcome testers to confirm it works.
+> Download the image matching your board from the [Releases](https://github.com/jamesrossdev/luckyclaw/releases) page.
+
+> [!IMPORTANT]
+> Only the **Luckfox Pico Plus** (RV1103) and **Luckfox Pico Pro Max** (RV1106) are supported. Other Luckfox variants (Pico Mini, Pico Zero, etc.) have not been tested and may not work.
 
 > [!WARNING]
 > Flashing replaces the entire filesystem on the board. All existing configuration, memories, sessions, and cron jobs will be lost. If you are upgrading from a previous version, back up your data first — see [Backup and Restore](BACKUP_RESTORE.md).
@@ -16,7 +19,7 @@ This guide covers flashing the LuckyClaw firmware to a Luckfox Pico board's eMMC
 
 ### Hardware
 
-- Luckfox Pico Plus (RV1103) or Pico Pro Max (RV1106) board
+- **Luckfox Pico Plus** (RV1103) or **Luckfox Pico Pro Max** (RV1106) board
 - USB Type-C to Type-A cable (must be **data capable**, not charge-only)
 - A computer running Windows
 
@@ -25,8 +28,8 @@ This guide covers flashing the LuckyClaw firmware to a Luckfox Pico board's eMMC
 All files are bundled together on the [Releases](https://github.com/jamesrossdev/luckyclaw/releases) page:
 
 1. **LuckyClaw firmware image** — pick the `.img` that matches your board:
-   - `luckyclaw-rv1103-vX.X.X.img` for Luckfox Pico Plus
-   - `luckyclaw-rv1106-vX.X.X.img` for Luckfox Pico Pro Max
+   - `luckyclaw-luckfox_pico_plus_rv1103-vX.X.X.img` for **Luckfox Pico Plus**
+   - `luckyclaw-luckfox_pico_pro_max_rv1106-vX.X.X.img` for **Luckfox Pico Pro Max**
 
 2. **Rockchip Driver Assistant** (`DriverAssistant_vX.X.zip`) — installs the USB driver so Windows can communicate with the board in MaskROM mode.
 
@@ -92,7 +95,7 @@ If successful, SOCToolKit will display a **"Maskrom"** device in the USB dropdow
 ## Step 4: Select Firmware and Flash
 
 1. Click the **Firmware…** button at the bottom of the window.
-2. Browse to and select the `.img` file you downloaded (e.g. `luckyclaw-rv1103-v0.2.0.img`).
+2. Browse to and select the `.img` file you downloaded (e.g. `luckyclaw-luckfox_pico_plus_rv1103-v0.2.0.img`).
 3. Click **Upgrade** to begin flashing.
 4. **Do not disconnect the cable** during this process. The log panel on the right will show progress.
 5. When complete, the log will show **"Upgrade firmware ok."** and **"Upgrade luckyclaw-v0…OK"**.

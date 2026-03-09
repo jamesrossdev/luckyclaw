@@ -9,6 +9,7 @@
     <img src="https://img.shields.io/badge/Go-1.25+-00ADD8?style=flat&logo=go&logoColor=white" alt="Go">
     <img src="https://img.shields.io/badge/Board-Luckfox_Pico-orange" alt="Board">
     <img src="https://img.shields.io/badge/license-MIT-green" alt="License">
+    <a href="https://discord.gg/TRdD9dBe"><img src="https://img.shields.io/badge/Discord-Community-5865F2?logo=discord&logoColor=white" alt="Discord"></a>
   </p>
 </div>
 
@@ -32,11 +33,21 @@ LuckyClaw is a purpose-built AI assistant for [Luckfox Pico](https://wiki.luckfo
 
 ## ⚡ Quick Start (End Users)
 
+### Supported Boards
+
+| Board | Chip | Image |
+|-------|------|-------|
+| **Luckfox Pico Plus** | RV1103 | `luckyclaw-luckfox_pico_plus_rv1103-vX.X.X.img` |
+| **Luckfox Pico Pro Max** | RV1106 | `luckyclaw-luckfox_pico_pro_max_rv1106-vX.X.X.img` |
+
+> [!IMPORTANT]
+> LuckyClaw currently only supports these two boards. Other Luckfox variants (Pico Mini, Pico Zero, etc.) are untested and may not work.
+
 ### 1. Flash the firmware
 
-Download the latest firmware image from [GitHub Releases](https://github.com/jamesrossdev/luckyclaw/releases).
+Download the firmware image matching your board from [GitHub Releases](https://github.com/jamesrossdev/luckyclaw/releases).
 
-Follow our detailed documentation to flash the firmware to your board:
+Follow our detailed documentation to flash the firmware:
 
 👉 **[LuckyClaw Flashing Guide (eMMC)](doc/FLASHING_GUIDE.md)**
 
@@ -377,6 +388,12 @@ LuckyClaw v0.2.0+ embeds its own timezone database and sets the timezone during 
    Then restart the gateway: `luckyclaw restart`
 
 ---
+
+## 💬 Community
+
+Join our Discord for help, feedback, and discussion:
+
+👉 **[LuckyClaw Discord](https://discord.gg/TRdD9dBe)**
 
 ## 🙏 Credits
 
