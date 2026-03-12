@@ -999,6 +999,24 @@ func gatewayCmd() {
 	// Inject channel manager into agent loop for command handling
 	agentLoop.SetChannelManager(channelManager)
 
+	// Wire Discord moderation tool callbacks from the live DiscordChannel
+	if discordCh, ok := channelManager.GetChannel("discord"); ok {
+		if dc, ok := discordCh.(*channels.DiscordChannel); ok {
+			if tool, ok := agentLoop.GetTool("discord_delete_message"); ok {
+				if dt, ok := tool.(*tools.DiscordDeleteMessageTool); ok {
+					dt.SetDeleteCallback(dc.DeleteMessage)
+					logger.InfoC("discord", "Delete message callback wired to Discord channel")
+				}
+			}
+			if tool, ok := agentLoop.GetTool("discord_timeout_user"); ok {
+				if tt, ok := tool.(*tools.DiscordTimeoutUserTool); ok {
+					tt.SetTimeoutCallback(dc.TimeoutUser)
+					logger.InfoC("discord", "Timeout user callback wired to Discord channel")
+				}
+			}
+		}
+	}
+
 	var transcriber *voice.GroqTranscriber
 	if cfg.Providers.Groq.APIKey != "" {
 		transcriber = voice.NewGroqTranscriber(cfg.Providers.Groq.APIKey)

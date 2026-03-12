@@ -200,6 +200,13 @@ func (m *Manager) StartAll(ctx context.Context) error {
 	go m.dispatchOutbound(dispatchCtx)
 
 	for name, channel := range m.channels {
+		// Register synchronous outbound handler so SendDirect can route to this channel.
+		// This enables the message tool to detect send failures (e.g. 403).
+		ch := channel // capture for closure
+		m.bus.RegisterOutboundHandler(name, func(ctx context.Context, msg bus.OutboundMessage) error {
+			return ch.Send(ctx, msg)
+		})
+
 		logger.InfoCF("channels", "Starting channel", map[string]interface{}{
 			"channel": name,
 		})

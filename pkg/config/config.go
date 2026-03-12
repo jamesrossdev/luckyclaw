@@ -105,9 +105,10 @@ type FeishuConfig struct {
 }
 
 type DiscordConfig struct {
-	Enabled   bool                `json:"enabled" env:"LUCKYCLAW_CHANNELS_DISCORD_ENABLED"`
-	Token     string              `json:"token" env:"LUCKYCLAW_CHANNELS_DISCORD_TOKEN"`
-	AllowFrom FlexibleStringSlice `json:"allow_from" env:"LUCKYCLAW_CHANNELS_DISCORD_ALLOW_FROM"`
+	Enabled    bool                `json:"enabled" env:"LUCKYCLAW_CHANNELS_DISCORD_ENABLED"`
+	Token      string              `json:"token" env:"LUCKYCLAW_CHANNELS_DISCORD_TOKEN"`
+	DisableDMs bool                `json:"disable_dms,omitempty" env:"LUCKYCLAW_CHANNELS_DISCORD_DISABLE_DMS"`
+	AllowFrom  FlexibleStringSlice `json:"allow_from" env:"LUCKYCLAW_CHANNELS_DISCORD_ALLOW_FROM"`
 }
 
 type MaixCamConfig struct {
