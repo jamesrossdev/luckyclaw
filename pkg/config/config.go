@@ -226,7 +226,7 @@ func DefaultConfig() *Config {
 				Workspace:           "~/.luckyclaw/workspace",
 				RestrictToWorkspace: true,
 				Provider:            "openrouter",
-				Model:               "arcee-ai/trinity-large-preview:free",
+				Model:               "stepfun/step-3.5-flash:free",
 				MaxTokens:           16384,
 				Temperature:         0.7,
 				MaxToolIterations:   25,

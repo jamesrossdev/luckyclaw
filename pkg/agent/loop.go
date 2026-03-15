@@ -501,6 +501,9 @@ func (al *AgentLoop) runLLMIteration(ctx context.Context, messages []providers.M
 		if opts.HeartbeatMode {
 			providerToolDefs = filterHeartbeatTools(providerToolDefs)
 		}
+		if opts.Channel == "discord" && opts.Metadata["is_dm"] != "true" {
+			providerToolDefs = filterDiscordTools(providerToolDefs)
+		}
 
 		// Log LLM request details
 		logger.DebugCF("agent", "LLM request",
@@ -718,6 +721,26 @@ func filterHeartbeatTools(tools []providers.ToolDefinition) []providers.ToolDefi
 	return filtered
 }
 
+// filterDiscordTools strictly whitelists tools allowed in public Discord channels
+func filterDiscordTools(tools []providers.ToolDefinition) []providers.ToolDefinition {
+	allowed := map[string]bool{
+		"message":                true,
+		"discord_delete_message": true,
+		"discord_timeout_user":   true,
+		"web_search_duckduckgo":  true,
+		"web_search_brave":       true,
+		"fetch_url":              true,
+	}
+
+	filtered := make([]providers.ToolDefinition, 0, len(tools))
+	for _, t := range tools {
+		if allowed[t.Function.Name] {
+			filtered = append(filtered, t)
+		}
+	}
+	return filtered
+}
+
 // updateToolContexts updates the context for tools that need channel/chatID info.
 func (al *AgentLoop) updateToolContexts(channel, chatID string, metadata map[string]string) {
 	// Use ContextualTool interface instead of type assertions
@@ -758,7 +781,6 @@ func (al *AgentLoop) updateToolContexts(channel, chatID string, metadata map[str
 		}
 	}
 }
-
 
 // maybeSummarize triggers summarization if the session history exceeds thresholds.
 func (al *AgentLoop) maybeSummarize(sessionKey, channel, chatID string) {
