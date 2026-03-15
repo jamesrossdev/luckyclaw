@@ -50,6 +50,10 @@ func (t *DiscordDeleteMessageTool) Parameters() map[string]interface{} {
 				"type":        "string",
 				"description": "Reason for deletion (logged to mod-log)",
 			},
+			"log_channel_id": map[string]interface{}{
+				"type":        "string",
+				"description": "Optional: Channel ID to send a moderation log to (e.g., mod-log channel)",
+			},
 		},
 		"required": []string{"channel_id", "message_id", "reason"},
 	}
@@ -76,6 +80,7 @@ func (t *DiscordDeleteMessageTool) Execute(ctx context.Context, args map[string]
 	channelID, _ := args["channel_id"].(string)
 	messageID, _ := args["message_id"].(string)
 	reason, _ := args["reason"].(string)
+	logChannelID, _ := args["log_channel_id"].(string)
 
 	if channelID == "" || messageID == "" {
 		return ErrorResult("channel_id and message_id are required")
@@ -97,9 +102,9 @@ func (t *DiscordDeleteMessageTool) Execute(ctx context.Context, args map[string]
 	}
 
 	// Auto-log to mod-log
-	if t.sendCallback != nil {
+	if t.sendCallback != nil && logChannelID != "" {
 		logMsg := fmt.Sprintf("🗑️ **Message Deleted**\n**Channel:** <#%s>\n**Reason:** %s\n**Actioned by:** LuckyClaw", channelID, reason)
-		_ = t.sendCallback("discord", "1481382116561256570", logMsg)
+		_ = t.sendCallback("discord", logChannelID, logMsg)
 	}
 
 	return &ToolResult{
@@ -145,6 +150,10 @@ func (t *DiscordTimeoutUserTool) Parameters() map[string]interface{} {
 				"type":        "string",
 				"description": "Reason for the timeout (logged to mod-log)",
 			},
+			"log_channel_id": map[string]interface{}{
+				"type":        "string",
+				"description": "Optional: Channel ID to send a moderation log to (e.g., mod-log channel)",
+			},
 		},
 		"required": []string{"user_id", "duration_minutes", "reason"},
 	}
@@ -158,9 +167,7 @@ func (t *DiscordTimeoutUserTool) SetContext(channel, chatID string) {
 // SetGuildID stores the guild ID from message metadata.
 // Called from updateToolContexts — never relying on the LLM to supply it.
 func (t *DiscordTimeoutUserTool) SetGuildID(guildID string) {
-	if guildID != "" {
-		t.defaultGuildID = guildID
-	}
+	t.defaultGuildID = guildID
 }
 
 func (t *DiscordTimeoutUserTool) SetTimeoutCallback(cb TimeoutUserCallback) {
@@ -179,6 +186,7 @@ func (t *DiscordTimeoutUserTool) Execute(ctx context.Context, args map[string]in
 	guildID := t.defaultGuildID // Always use context guild_id
 	rawUserID, _ := args["user_id"].(string)
 	reason, _ := args["reason"].(string)
+	logChannelID, _ := args["log_channel_id"].(string)
 
 	// Clean up user ID if the LLM passed a raw mention like <@123456>
 	userID := strings.TrimPrefix(strings.TrimSuffix(rawUserID, ">"), "<@")
@@ -224,9 +232,9 @@ func (t *DiscordTimeoutUserTool) Execute(ctx context.Context, args map[string]in
 	}
 
 	// Auto-log to mod-log
-	if t.sendCallback != nil {
+	if t.sendCallback != nil && logChannelID != "" {
 		logMsg := fmt.Sprintf("⚠️ **User Timeout**\n**User:** <@%s>\n**Duration:** %.0f minutes\n**Reason:** %s\n**Actioned by:** LuckyClaw", userID, durationMinutes, reason)
-		_ = t.sendCallback("discord", "1481382116561256570", logMsg)
+		_ = t.sendCallback("discord", logChannelID, logMsg)
 	}
 
 	return &ToolResult{
