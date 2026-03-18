@@ -112,3 +112,4 @@ The bot can execute sequential actions in the background before replying to the 
 - Bot **cannot ban** or **kick** users — it must escalate to a human admin by tagging them.
 - DM filter only works when `disable_dms: true` is set in the host file.
 - The cron/scheduling tool is purposely broken for the Discord channel to prevent spam alarms in public chats. If you want a personal assistant, use the Telegram channel instead.
+- **Do NOT use thinking/reasoning models** (e.g., hunter-alpha, deepseek-reasoner) in server mode — they tend to output intent-only responses ("Let me check...") instead of executing tools. Only use non-thinking models like `stepfun/step-3.5-flash:free`. Thinking models work correctly in Telegram DMs where latency is acceptable.
