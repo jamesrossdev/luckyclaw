@@ -424,6 +424,7 @@ func (al *AgentLoop) runAgentLoop(ctx context.Context, opts processOptions) (str
 		nil,
 		opts.Channel,
 		opts.ChatID,
+		opts.Metadata,
 	)
 
 	// 3. Save user message to session
@@ -580,6 +581,7 @@ func (al *AgentLoop) runLLMIteration(ctx context.Context, messages []providers.M
 					nil,
 					opts.Channel,
 					opts.ChatID,
+					nil, // Metadata already processed in system prompt of the original call
 				)
 
 				continue

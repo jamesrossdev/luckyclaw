@@ -202,7 +202,7 @@ func (cb *ContextBuilder) LoadBootstrapFiles() string {
 	return result
 }
 
-func (cb *ContextBuilder) BuildMessages(history []providers.Message, summary string, currentMessage string, media []string, channel, chatID string) []providers.Message {
+func (cb *ContextBuilder) BuildMessages(history []providers.Message, summary string, currentMessage string, media []string, channel, chatID string, metadata map[string]string) []providers.Message {
 	messages := []providers.Message{}
 
 	systemPrompt := cb.BuildSystemPrompt()
@@ -210,6 +210,23 @@ func (cb *ContextBuilder) BuildMessages(history []providers.Message, summary str
 	// Add Current Session info if provided
 	if channel != "" && chatID != "" {
 		systemPrompt += fmt.Sprintf("\n\n## Current Session\nChannel: %s\nChat ID: %s", channel, chatID)
+	}
+
+	// Add User Information from metadata
+	if metadata != nil {
+		userInfo := "\n\n## User Information\n"
+		if val, ok := metadata["display_name"]; ok {
+			userInfo += fmt.Sprintf("- **Display Name:** %s\n", val)
+		}
+		if val, ok := metadata["sender_roles"]; ok {
+			userInfo += fmt.Sprintf("- **Roles:** %s\n", val)
+		}
+		if val, ok := metadata["is_dm"]; ok && val == "true" {
+			userInfo += "- **Context:** Private Message (DM)\n"
+		} else {
+			userInfo += "- **Context:** Server Channel\n"
+		}
+		systemPrompt += userInfo
 	}
 
 	// Log system prompt summary for debugging (debug mode only)
