@@ -288,52 +288,76 @@ Keep the codebase clean using the integrated Makefile targets:
 
 ### Build firmware image
 
-The `firmware/` directory contains the SDK overlay files that get baked into the firmware image:
+The firmware overlay only contains OS-level files that get baked into `rootfs.img`. The **workspace templates** (`SOUL.md`, skills, etc.) are **embedded directly into the binary** via `go:embed workspace` — so every binary already carries the full workspace inside it. Users get workspace files by running `luckyclaw onboard`, which extracts them to `/oem/.luckyclaw/workspace/`.
 
 ```
 firmware/overlay/
-├── etc/
-│   ├── init.d/S99luckyclaw       # Auto-start on boot
-│   ├── profile.d/luckyclaw-banner.sh  # SSH login banner
-│   └── ssl/certs/ca-certificates.crt  # TLS certificates
-├── root/.luckyclaw/
-│   ├── config.json               # Default config
-│   └── workspace/                # Default workspace files
-└── usr/bin/luckyclaw             # The binary
+└── etc/
+    ├── init.d/S99luckyclaw          # Auto-start on boot
+    ├── profile.d/luckyclaw-banner.sh # SSH login banner
+    └── ssl/certs/ca-certificates.crt # TLS certificates
 ```
 
-To build a firmware image:
+To build a distributable firmware image:
 
-1. **Build the ARM binary**: `make build-arm`
-2. **Clone the SDK**: `git clone https://github.com/LuckfoxTECH/luckfox-pico.git luckfox-pico-sdk`
-3. **Copy overlay**: `cp -r firmware/overlay/* luckfox-pico-sdk/project/cfg/BoardConfig_IPC/overlay/luckyclaw-overlay/`
-4. **Copy binary**: `cp build/luckyclaw-linux-arm luckfox-pico-sdk/project/cfg/BoardConfig_IPC/overlay/luckyclaw-overlay/usr/bin/luckyclaw`
-5. **Build image**:
+1. **Build the ARM binary** (workspace is embedded automatically):
    ```bash
-   cd luckfox-pico-sdk
-   ./build.sh lunch   # Select your board config
-   ./build.sh
+   make build-arm
+   # Output: build/luckyclaw-linux-arm
    ```
 
-The firmware image will be in `luckfox-pico-sdk/output/image/`.
+2. **Clone the SDK** (one-time setup):
+   ```bash
+   git clone https://github.com/LuckfoxTECH/luckfox-pico.git luckfox-pico-sdk
+   ```
+
+3. **Sync the `etc/` overlay to the SDK** (do this if init script or banner changed):
+   ```bash
+   cp -r firmware/overlay/etc/ \
+     luckfox-pico-sdk/project/cfg/BoardConfig_IPC/overlay/luckyclaw-overlay/etc/
+   ```
+
+4. **Copy the ARM binary into the SDK overlay**:
+   ```bash
+   cp build/luckyclaw-linux-arm \
+     luckfox-pico-sdk/project/cfg/BoardConfig_IPC/overlay/luckyclaw-overlay/usr/bin/luckyclaw
+   chmod +x \
+     luckfox-pico-sdk/project/cfg/BoardConfig_IPC/overlay/luckyclaw-overlay/usr/bin/luckyclaw
+   ```
+
+5. **Build the firmware image**:
+   ```bash
+   cd luckfox-pico-sdk && ./build.sh
+   ```
+
+6. **Find the output image**:
+   ```
+   luckfox-pico-sdk/IMAGE/<timestamp>/IMAGES/update.img
+   ```
+   Rename it: `luckyclaw-luckfox_pico_plus_rv1103-vX.Y.Z.img`
+
+When a user flashes this image and runs `luckyclaw onboard`, the embedded workspace is extracted to `/oem/.luckyclaw/workspace/`.
 
 ### Project structure
 
 ```
 luckyclaw/
-├── cmd/luckyclaw/main.go    # Entry point, CLI, and onboarding wizard
+├── cmd/luckyclaw/main.go    # Entry point, CLI, onboarding wizard (embeds workspace/)
 ├── pkg/
 │   ├── agent/               # Core agent loop and context builder
 │   ├── bus/                 # Internal message bus
 │   ├── channels/            # Telegram, Discord, and other messaging integrations
 │   ├── config/              # Configuration and system settings
 │   ├── providers/           # LLM provider implementations (OpenRouter, etc.)
+│   ├── skills/              # Skill loader and installer
 │   ├── tools/               # Agent tools (shell, file, i2c, spi, send_file)
 │   └── ...
-├── firmware/                # SDK overlay files and init scripts
-├── workspace/               # Default templates for the agent workspace
+├── firmware/overlay/etc/    # Init script + SSH banner baked into firmware image
+├── workspace/               # Templates embedded into binary via go:embed
 └── assets/                  # Documentation images and media
 ```
+
+
 
 ### Performance tuning
 
