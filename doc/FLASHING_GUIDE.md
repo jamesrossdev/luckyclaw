@@ -3,23 +3,21 @@
 This guide covers flashing the LuckyClaw firmware to a Luckfox Pico board's eMMC storage using the Rockchip SOCToolKit on Windows.
 
 > [!NOTE]
-> We currently provide pre-built firmware images for **two board variants**:
+> We currently provide pre-built firmware images for the following board variants:
 > - `luckyclaw-luckfox_pico_plus_rv1103-vX.X.X.img` — for **Luckfox Pico Plus**
-> - `luckyclaw-luckfox_pico_pro_max_rv1106-vX.X.X.img` — for **Luckfox Pico Pro Max**
+> - `luckyclaw-luckfox_pico_pro_max_rv1106-vX.X.X.img` — for **Luckfox Pico Pro** or **Luckfox Pico Max**
 >
 > Download the image matching your board from the [Releases](https://github.com/jamesrossdev/luckyclaw/releases) page.
 
 > [!IMPORTANT]
-> Only the **Luckfox Pico Plus** (RV1103) and **Luckfox Pico Pro Max** (RV1106) are supported. Other Luckfox variants (Pico Mini, Pico Zero, etc.) have not been tested and may not work.
+> Only the **Luckfox Pico Plus** (RV1103), **Luckfox Pico Pro** (RV1106), and **Luckfox Pico Max** (RV1106) are supported at this time.
 
 > [!WARNING]
 > Flashing replaces the entire filesystem on the board. All existing configuration, memories, sessions, and cron jobs will be lost. If you are upgrading from a previous version, back up your data first — see [Backup and Restore](BACKUP_RESTORE.md).
 
-## Prerequisites
-
 ### Hardware
 
-- **Luckfox Pico Plus** (RV1103) or **Luckfox Pico Pro Max** (RV1106) board
+- **Luckfox Pico Plus** (RV1103), **Luckfox Pico Pro** (RV1106), or **Luckfox Pico Max** (RV1106) board
 - USB Type-C to Type-A cable (must be **data capable**, not charge-only)
 - A computer running Windows
 
@@ -29,7 +27,7 @@ All files are bundled together on the [Releases](https://github.com/jamesrossdev
 
 1. **LuckyClaw firmware image** — pick the `.img` that matches your board:
    - `luckyclaw-luckfox_pico_plus_rv1103-vX.X.X.img` for **Luckfox Pico Plus**
-   - `luckyclaw-luckfox_pico_pro_max_rv1106-vX.X.X.img` for **Luckfox Pico Pro Max**
+   - `luckyclaw-luckfox_pico_pro_max_rv1106-vX.X.X.img` for **Luckfox Pico Pro** or **Luckfox Pico Max**
 
 2. **Rockchip Driver Assistant** (`DriverAssistant_vX.X.zip`) — installs the USB driver so Windows can communicate with the board in MaskROM mode.
 
@@ -67,7 +65,7 @@ Before flashing, you must install the Rockchip USB driver on your Windows machin
 
 ![Open SOCToolKit folder and run as admin](../assets/flashing/step-02-open-soctoolkit.png)
 
-3. When SOCToolKit opens, it will ask you to select a chip. Choose **RV1103** (for Luckfox Pico Plus) or **RV1106** (for Pico Pro Max) from the dropdown, then click **OK**. Make sure **USB** is selected (not COM).
+3. When SOCToolKit opens, it will ask you to select a chip. Choose **RV1103** (for Luckfox Pico Plus) or **RV1106** (for Pico Pro or Pico Max) from the dropdown, then click **OK**. Make sure **USB** is selected (not COM).
 
 ![Select your chip — RV1103 or RV1106](../assets/flashing/step-02-chip-selection.png)
 

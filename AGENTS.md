@@ -96,7 +96,18 @@ Only two parts of `firmware/overlay/` are meaningful:
 - `firmware/overlay/usr/` — **Not tracked in git.** The ARM binary is compiled at SDK build time and placed here; it is not stored in the repo.
 
 ### 14. Binary-Only Updates (No Reflash Required)
-The binary at `/usr/bin/luckyclaw` lives on the writable `rootfs` partition and can be replaced via SCP at any time without reflashing the firmware. This is how all development deploys work. Because `workspace/` is embedded in the binary, updating the binary also delivers new/updated skills and templates to users when they next run `luckyclaw onboard`. This architecture makes **over-the-air (OTA) auto-update** possible: the binary could check GitHub Releases, download a new ARM build, kill itself, overwrite `/usr/bin/luckyclaw`, and restart via the init script. 
+The binary at `/usr/bin/luckyclaw` lives on the writable `rootfs` partition and can be replaced via SCP at any time without reflashing the firmware. This is how all development deploys work. Because `workspace/` is embedded in the binary, updating the binary also delivers new/updated skills and templates to users when they next run `luckyclaw onboard`. This architecture makes **over-the-air (OTA) auto-update** possible: the binary could check GitHub Releases, download a new ARM build, kill itself, overwrite `/usr/bin/luckyclaw`, and restart via the init script.
+
+### 15. Project Philosophy — Conservative by Design
+LuckyClaw is **not** trying to be PicoClaw or nanobot. It is PicoClaw's simpler, more conservative sibling — built for normal people who want a cheap, reliable AI assistant, not developers who need MCP, vision pipelines, or Web UIs.
+
+**Upstream evaluation policy**: When asked to check what PicoClaw is up to or evaluate upstream changes, apply this filter:
+- ✅ **Always port**: Security fixes, crash fixes, data loss fixes, reliability improvements
+- ✅ **Consider porting**: Genuinely useful features that benefit everyday users (e.g., better memory handling, improved session stability, Telegram reliability fixes)
+- ❌ **Never port**: Feature additions targeting developers or power users (MCP, vision, Web UI, system tray, new channels, new providers, model routing)
+
+When in doubt, ask: *"Would a normal person on a $10 board benefit from this?"* If the answer is no, leave it upstream.
+ 
 
 ## Build & Deploy
 

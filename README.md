@@ -3,7 +3,7 @@
 
   <h1>🦞 LuckyClaw: AI Assistant for Luckfox Pico</h1>
 
-  <h3>One-stop AI firmware for Luckfox Pico boards</h3>
+  <h3>The simple AI assistant for normal people on cheap hardware</h3>
 
   <p>
     <img src="https://img.shields.io/badge/Go-1.25+-00ADD8?style=flat&logo=go&logoColor=white" alt="Go">
@@ -15,33 +15,61 @@
 
 ---
 
-LuckyClaw is a purpose-built AI assistant for [Luckfox Pico](https://wiki.luckfox.com/Luckfox-Pico/Luckfox-Pico-quick-start/) boards. It's a fork of [PicoClaw](https://github.com/sipeed/picoclaw), optimized specifically for Luckfox hardware with baked-in memory management, interactive setup, and pre-built firmware images.
+LuckyClaw is a simple, self-contained AI assistant for [Luckfox Pico](https://wiki.luckfox.com/Luckfox-Pico/Luckfox-Pico-quick-start/) boards. It's built on [PicoClaw](https://github.com/sipeed/picoclaw) but **deliberately simpler** — designed for normal people who want an AI assistant that's cheap as dirt and just works, not developers who need MCP, vision pipelines, or Web UIs.
 
-**What makes it different from PicoClaw:**
+**Who it's for:** You have a $10–$50 Luckfox board and want a 24/7 AI assistant on Telegram or Discord. You don't want to compile Go, configure YAML files, or maintain a server.
 
-- 🔧 **Pre-built firmware** — Flash and go, no SDK required for end-users
-- 🧙 **Interactive onboarding** — `luckyclaw onboard` walks you through API key, model, timezone, and Telegram setup
-- 🧠 **Memory-optimized** — GOGC and GOMEMLIMIT baked into the binary for 64MB boards
-- 📟 **SSH banner** — See gateway status and available commands on login
-- 🦞 **Board-aware** — Detects Luckfox Pico model, shows board-specific info in `status`
-- 🌍 **Timezone-aware** — Embedded timezone database, correct local time on any board
-- 📎 **File attachments** — Send files directly to Telegram via the `send_file` tool
-- ⚡ **Iteration budgeting** — Agent knows its tool limits, reserves capacity for responses
+**What makes it different:**
+
+- 🔧 **Pre-built firmware** — Flash and go, no SDK or compilation required
+- 🧙 **Interactive onboarding** — `luckyclaw onboard` walks you through everything in 2 minutes
+- 🧠 **Memory-optimized** — Tuned specifically for 64MB boards, not general-purpose servers
+- 📟 **SSH banner** — See gateway status and commands on every login
+- 🌍 **Timezone-aware** — Correct local time on the board, no `/usr/share/zoneinfo` needed
+- 📎 **File attachments** — Send files directly via Telegram
+- 🤙 **Conservative by design** — Fewer features, fewer surprises, fewer crashes
 
 > [!NOTE]
-> LuckyClaw is built on top of [PicoClaw](https://github.com/sipeed/picoclaw) by [Sipeed](https://sipeed.com). All credit for the core AI agent engine goes to the PicoClaw team and the original [nanobot](https://github.com/HKUDS/nanobot) project.
+> LuckyClaw is built on top of [PicoClaw](https://github.com/sipeed/picoclaw) by [Sipeed](https://sipeed.com). PicoClaw is the upstream project — LuckyClaw is the simpler, more opinionated fork optimized for Luckfox hardware and everyday users. We cherry-pick stability fixes and genuinely useful features from upstream; we don't try to keep pace with every new addition.
 
 ## ⚡ Quick Start (End Users)
 
-### Supported Boards
+### Option A: Flash Pre-Built Firmware (Recommended for Beginners)
+
+Download the firmware image for your board from [GitHub Releases](https://github.com/jamesrossdev/luckyclaw/releases) and follow the [LuckyClaw Flashing Guide](doc/FLASHING_GUIDE.md).
+
+After flashing, connect via SSH and run:
+```bash
+luckyclaw onboard
+```
+
+### Option B: Binary Install on Existing Luckfox (No Reflash)
+
+If your board is already running Luckfox Buildroot, you can install LuckyClaw directly:
+
+```bash
+# Download the ARMv7 binary
+wget https://github.com/jamesrossdev/luckyclaw/releases/latest/download/luckyclaw-linux-arm -O /usr/bin/luckyclaw
+chmod +x /usr/bin/luckyclaw
+
+# Run onboard setup
+luckyclaw onboard
+
+# Start in background
+luckyclaw gateway -b
+```
+
 
 | Board | Chip | Image |
 |-------|------|-------|
 | **Luckfox Pico Plus** | RV1103 | `luckyclaw-luckfox_pico_plus_rv1103-vX.X.X.img` |
-| **Luckfox Pico Pro Max** | RV1106 | `luckyclaw-luckfox_pico_pro_max_rv1106-vX.X.X.img` |
+| **Luckfox Pico Pro** | RV1106 | `luckyclaw-luckfox_pico_pro_max_rv1106-vX.X.X.img`* |
+| **Luckfox Pico Max** | RV1106 | `luckyclaw-luckfox_pico_pro_max_rv1106-vX.X.X.img`* |
+
+\* *The Pico Pro (128MB RAM) and Pico Max (256MB RAM) share the same RV1106 SoC and firmware image.*
 
 > [!IMPORTANT]
-> LuckyClaw currently only supports these two boards. Other Luckfox variants (Pico Mini, Pico Zero, etc.) are untested and may not work.
+> LuckyClaw currently only supports these three board variants. Other Luckfox variants (Pico Mini, Pico Zero, etc.) are untested and may not work.
 
 ### 1. Flash the firmware
 
@@ -334,7 +362,7 @@ To build a distributable firmware image:
    ```
    luckfox-pico-sdk/IMAGE/<timestamp>/IMAGES/update.img
    ```
-   Rename it: `luckyclaw-luckfox_pico_plus_rv1103-vX.Y.Z.img`
+   Rename it: `luckyclaw-luckfox_pico_plus_rv110x-vX.Y.Z.img` depending on your board and version.
 
 When a user flashes this image and runs `luckyclaw onboard`, the embedded workspace is extracted to `/oem/.luckyclaw/workspace/`.
 

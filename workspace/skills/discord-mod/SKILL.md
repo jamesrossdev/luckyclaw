@@ -6,7 +6,7 @@ description: LuckyClaw server FAQ, channel directory, and rules
 # About LuckyClaw
 
 LuckyClaw is an open-source AI assistant built by James (@ross.james)
-and other contributors. It is a fork of Picoclaw tuned for Luckfox Pico Plus and Luckfox Pico Pro Max boards.
+and other contributors. It is a fork of Picoclaw tuned for Luckfox Pico Plus, Luckfox Pico Pro, and Luckfox Pico Max boards.
 
 **GitHub**: https://github.com/jamesrossdev/luckyclaw
 **Server invite**: [Your Server Invite Link Here]
