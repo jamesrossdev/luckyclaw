@@ -3,7 +3,7 @@
 
   <h1>🦞 LuckyClaw: AI Assistant for Luckfox Pico</h1>
 
-  <h3>The simple AI assistant for normal people on cheap hardware</h3>
+  <h3>The streamlined AI companion for Luckfox hardware.</h3>
 
   <p>
     <img src="https://img.shields.io/badge/Go-1.25+-00ADD8?style=flat&logo=go&logoColor=white" alt="Go">
@@ -15,9 +15,9 @@
 
 ---
 
-LuckyClaw is a simple, self-contained AI assistant for [Luckfox Pico](https://wiki.luckfox.com/Luckfox-Pico/Luckfox-Pico-quick-start/) boards. It's built on [PicoClaw](https://github.com/sipeed/picoclaw) but **deliberately simpler** — designed for normal people who want an AI assistant that's cheap as dirt and just works, not developers who need MCP, vision pipelines, or Web UIs.
+LuckyClaw is a streamlined, self-contained AI assistant purpose-built for the [Luckfox Pico](https://wiki.luckfox.com/Luckfox-Pico/Luckfox-Pico-quick-start/) ecosystem. While based on the excellent work of [PicoClaw](https://github.com/sipeed/picoclaw), LuckyClaw prioritizes absolute stability and ease of use for everyday users over the complex feature velocity of its upstream counterpart.
 
-**Who it's for:** You have a $10–$50 Luckfox board and want a 24/7 AI assistant on Telegram or Discord. You don't want to compile Go, configure YAML files, or maintain a server.
+**Who it's for:** LuckyClaw is designed for those who want a reliable, 24/7 digital companion on Telegram or Discord without the overhead of manual compilation, complex configurations, or dedicated server maintenance. If you have a Luckfox board, you have a professional-grade AI assistant.
 
 **What makes it different:**
 

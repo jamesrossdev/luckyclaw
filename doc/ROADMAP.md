@@ -10,7 +10,7 @@ Items are prioritized by readiness and impact. Items may be moved between versio
 - SSH banner and init script improvements
 - Default response improvement (echoes user's question on failure)
 
-## v0.2.1 (In Progress)
+## v0.2.1 (Current)
 
 - Discord moderation tools: message deletion, user timeouts (7s–4w)
 - Discord DM sandbox bypass — full tool access in DMs, sandboxed in server channels
@@ -21,6 +21,7 @@ Items are prioritized by readiness and impact. Items may be moved between versio
 - `firmware/overlay/root/` removed — workspace delivered via `go:embed`, not firmware
 - README and AGENTS.md updated to reflect conservative project philosophy
 - Pico Pro / Pico Max board compatibility clarified
+- Improved memory reporting clarity in status and banner (available / total)
 
 ## v0.2.2 (Planned)
 

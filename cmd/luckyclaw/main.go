@@ -50,7 +50,7 @@ import (
 var embeddedFiles embed.FS
 
 var (
-	version   = "dev"
+	version   = "v0.2.1"
 	gitCommit string
 	buildTime string
 	goVersion string
@@ -342,7 +342,7 @@ func onboard() {
 			}
 		}
 		if total > 0 {
-			fmt.Printf("  Memory: %dMB / %dMB available\n", avail/1024, total/1024)
+			fmt.Printf("  Memory: %dMB available / %dMB total\n", avail/1024, total/1024)
 		}
 	}
 	fmt.Println()
@@ -1142,7 +1142,7 @@ func statusCmd() {
 			}
 		}
 		if total > 0 {
-			fmt.Printf("  Memory: %dMB / %dMB available\n", avail/1024, total/1024)
+			fmt.Printf("  Memory: %dMB available / %dMB total\n", avail/1024, total/1024)
 		}
 	}
 

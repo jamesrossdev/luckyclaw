@@ -36,7 +36,7 @@ fi
 # Show memory
 MEM_AVAIL=$(grep MemAvailable /proc/meminfo | awk '{print int($2/1024)}')
 MEM_TOTAL=$(grep MemTotal /proc/meminfo | awk '{print int($2/1024)}')
-echo "  Memory:  ${MEM_AVAIL}MB / ${MEM_TOTAL}MB available"
+echo "  Memory:  ${MEM_AVAIL}MB available / ${MEM_TOTAL}MB total"
 
 echo ""
 echo "  Commands:"
