@@ -2,7 +2,7 @@
 
 Items are prioritized by readiness and impact. Items may be moved between versions or dropped based on progress and real-world usage feedback.
 
-## v0.2.0 (Current Release)
+## v0.2.0 ✅
 
 - Heartbeat hardening (HeartbeatMode, SilentResult, audit logging)
 - Memory optimization (GOMEMLIMIT tuning, GOGC=20)
@@ -10,33 +10,45 @@ Items are prioritized by readiness and impact. Items may be moved between versio
 - SSH banner and init script improvements
 - Default response improvement (echoes user's question on failure)
 
-## v0.2.x (Patch Releases)
+## v0.2.1 (Current)
 
-- Port `registry_test.go` from upstream PicoClaw (tool registry test coverage)
+- Discord moderation tools: message deletion, user timeouts (7s–4w)
+- Discord DM sandbox bypass — full tool access in DMs, sandboxed in server channels
+- User metadata injection — agent sees display name, roles, and DM status in system prompt
+- Reasoning model support — thinking tokens hidden from chat, retained in context
+- Warning added against using thinking models in Discord server mode
+- `discord-mod` community skill template added to workspace
+- `firmware/overlay/root/` removed — workspace delivered via `go:embed`, not firmware
+- README and AGENTS.md updated to reflect conservative project philosophy
+- Pico Pro / Pico Max board compatibility clarified
+- Improved memory reporting clarity in status and banner (available / total)
+
+## v0.2.2 (Planned)
+
+- `luckyclaw install` — sets up init script, SSH banner, and OOM protection on stock Buildroot (no reflash needed)
+- WhatsApp channel integration
+- Port `registry_test.go` from upstream (tool registry test coverage)
 - Port `shell_process_unix.go` from upstream (process group cleanup for exec tool)
-- Performance benchmark tests (`make bench`)
-- System prompt caching between messages
 - Cron tool `at_time` parameter (ISO-8601 absolute time for reminders)
 
-## v0.3.x (Next Minor)
+## v0.2.x (Next Minor)
 
-- Auto-update command (`luckyclaw update`) -- binary-only OTA updates
-- WhatsApp channel integration
+- Auto-update command (`luckyclaw update`) — binary-only OTA updates
 - Tool definition caching
-- Versioned firmware image naming in build pipeline
 - Session save optimization (json.Marshal vs MarshalIndent)
 
 ## Future
 
 - Cross-platform flashing tool (replace Windows-only SOCToolKit)
-- Multi-model routing (small model for easy tasks, large for hard)
 - Skill marketplace / remote skill install
 
 ## Upstream Watchlist
 
-Items from PicoClaw upstream that may be worth integrating if they mature:
+Items from PicoClaw upstream that may be worth integrating if they mature and benefit everyday users:
 
-- `pkg/routing` -- model routing (1,103 lines, added upstream post-fork)
-- `pkg/media` -- media handling for attachments (801 lines)
-- `shell_process_windows.go` -- Windows cross-platform support (28 lines)
-- `pkg/identity` -- identity/personality management (336 lines)
+- History compression retry logic — better multi-byte/CJK handling
+- Token masking in logs — hides bot tokens from log output (security)
+- Symlinked path whitelist fix — tool path security hardening
+- `pkg/identity` — identity/personality management (336 lines)
+
+

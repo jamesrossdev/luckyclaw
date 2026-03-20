@@ -3,7 +3,7 @@
 
   <h1>🦞 LuckyClaw: AI Assistant for Luckfox Pico</h1>
 
-  <h3>One-stop AI firmware for Luckfox Pico boards</h3>
+  <h3>The streamlined AI companion for Luckfox hardware.</h3>
 
   <p>
     <img src="https://img.shields.io/badge/Go-1.25+-00ADD8?style=flat&logo=go&logoColor=white" alt="Go">
@@ -15,33 +15,61 @@
 
 ---
 
-LuckyClaw is a purpose-built AI assistant for [Luckfox Pico](https://wiki.luckfox.com/Luckfox-Pico/Luckfox-Pico-quick-start/) boards. It's a fork of [PicoClaw](https://github.com/sipeed/picoclaw), optimized specifically for Luckfox hardware with baked-in memory management, interactive setup, and pre-built firmware images.
+LuckyClaw is a streamlined, self-contained AI assistant purpose-built for the [Luckfox Pico](https://wiki.luckfox.com/Luckfox-Pico/Luckfox-Pico-quick-start/) ecosystem. While based on the excellent work of [PicoClaw](https://github.com/sipeed/picoclaw), LuckyClaw prioritizes absolute stability and ease of use for everyday users over the complex feature velocity of its upstream counterpart.
 
-**What makes it different from PicoClaw:**
+**Who it's for:** LuckyClaw is designed for those who want a reliable, 24/7 digital companion on Telegram or Discord without the overhead of manual compilation, complex configurations, or dedicated server maintenance. If you have a Luckfox board, you have a professional-grade AI assistant.
 
-- 🔧 **Pre-built firmware** — Flash and go, no SDK required for end-users
-- 🧙 **Interactive onboarding** — `luckyclaw onboard` walks you through API key, model, timezone, and Telegram setup
-- 🧠 **Memory-optimized** — GOGC and GOMEMLIMIT baked into the binary for 64MB boards
-- 📟 **SSH banner** — See gateway status and available commands on login
-- 🦞 **Board-aware** — Detects Luckfox Pico model, shows board-specific info in `status`
-- 🌍 **Timezone-aware** — Embedded timezone database, correct local time on any board
-- 📎 **File attachments** — Send files directly to Telegram via the `send_file` tool
-- ⚡ **Iteration budgeting** — Agent knows its tool limits, reserves capacity for responses
+**What makes it different:**
+
+- 🔧 **Pre-built firmware** — Flash and go, no SDK or compilation required
+- 🧙 **Interactive onboarding** — `luckyclaw onboard` walks you through everything in 2 minutes
+- 🧠 **Memory-optimized** — Tuned specifically for 64MB boards, not general-purpose servers
+- 📟 **SSH banner** — See gateway status and commands on every login
+- 🌍 **Timezone-aware** — Correct local time on the board, no `/usr/share/zoneinfo` needed
+- 📎 **File attachments** — Send files directly via Telegram
+- 🤙 **Conservative by design** — Fewer features, fewer surprises, fewer crashes
 
 > [!NOTE]
-> LuckyClaw is built on top of [PicoClaw](https://github.com/sipeed/picoclaw) by [Sipeed](https://sipeed.com). All credit for the core AI agent engine goes to the PicoClaw team and the original [nanobot](https://github.com/HKUDS/nanobot) project.
+> LuckyClaw is built on top of [PicoClaw](https://github.com/sipeed/picoclaw) by [Sipeed](https://sipeed.com). PicoClaw is the upstream project — LuckyClaw is the simpler, more opinionated fork optimized for Luckfox hardware and everyday users. We cherry-pick stability fixes and genuinely useful features from upstream; we don't try to keep pace with every new addition.
 
 ## ⚡ Quick Start (End Users)
 
-### Supported Boards
+### Option A: Flash Pre-Built Firmware (Recommended for Beginners)
+
+Download the firmware image for your board from [GitHub Releases](https://github.com/jamesrossdev/luckyclaw/releases) and follow the [LuckyClaw Flashing Guide](doc/FLASHING_GUIDE.md).
+
+After flashing, connect via SSH and run:
+```bash
+luckyclaw onboard
+```
+
+### Option B: Binary Install on Existing Luckfox (No Reflash)
+
+If your board is already running Luckfox Buildroot, you can install LuckyClaw directly:
+
+```bash
+# Download the ARMv7 binary
+wget https://github.com/jamesrossdev/luckyclaw/releases/latest/download/luckyclaw-linux-arm -O /usr/bin/luckyclaw
+chmod +x /usr/bin/luckyclaw
+
+# Run onboard setup
+luckyclaw onboard
+
+# Start in background
+luckyclaw gateway -b
+```
+
 
 | Board | Chip | Image |
 |-------|------|-------|
 | **Luckfox Pico Plus** | RV1103 | `luckyclaw-luckfox_pico_plus_rv1103-vX.X.X.img` |
-| **Luckfox Pico Pro Max** | RV1106 | `luckyclaw-luckfox_pico_pro_max_rv1106-vX.X.X.img` |
+| **Luckfox Pico Pro** | RV1106 | `luckyclaw-luckfox_pico_pro_max_rv1106-vX.X.X.img`* |
+| **Luckfox Pico Max** | RV1106 | `luckyclaw-luckfox_pico_pro_max_rv1106-vX.X.X.img`* |
+
+\* *The Pico Pro (128MB RAM) and Pico Max (256MB RAM) share the same RV1106 SoC and firmware image.*
 
 > [!IMPORTANT]
-> LuckyClaw currently only supports these two boards. Other Luckfox variants (Pico Mini, Pico Zero, etc.) are untested and may not work.
+> LuckyClaw currently only supports these three board variants. Other Luckfox variants (Pico Mini, Pico Zero, etc.) are untested and may not work.
 
 ### 1. Flash the firmware
 
@@ -288,52 +316,76 @@ Keep the codebase clean using the integrated Makefile targets:
 
 ### Build firmware image
 
-The `firmware/` directory contains the SDK overlay files that get baked into the firmware image:
+The firmware overlay only contains OS-level files that get baked into `rootfs.img`. The **workspace templates** (`SOUL.md`, skills, etc.) are **embedded directly into the binary** via `go:embed workspace` — so every binary already carries the full workspace inside it. Users get workspace files by running `luckyclaw onboard`, which extracts them to `/oem/.luckyclaw/workspace/`.
 
 ```
 firmware/overlay/
-├── etc/
-│   ├── init.d/S99luckyclaw       # Auto-start on boot
-│   ├── profile.d/luckyclaw-banner.sh  # SSH login banner
-│   └── ssl/certs/ca-certificates.crt  # TLS certificates
-├── root/.luckyclaw/
-│   ├── config.json               # Default config
-│   └── workspace/                # Default workspace files
-└── usr/bin/luckyclaw             # The binary
+└── etc/
+    ├── init.d/S99luckyclaw          # Auto-start on boot
+    ├── profile.d/luckyclaw-banner.sh # SSH login banner
+    └── ssl/certs/ca-certificates.crt # TLS certificates
 ```
 
-To build a firmware image:
+To build a distributable firmware image:
 
-1. **Build the ARM binary**: `make build-arm`
-2. **Clone the SDK**: `git clone https://github.com/LuckfoxTECH/luckfox-pico.git luckfox-pico-sdk`
-3. **Copy overlay**: `cp -r firmware/overlay/* luckfox-pico-sdk/project/cfg/BoardConfig_IPC/overlay/luckyclaw-overlay/`
-4. **Copy binary**: `cp build/luckyclaw-linux-arm luckfox-pico-sdk/project/cfg/BoardConfig_IPC/overlay/luckyclaw-overlay/usr/bin/luckyclaw`
-5. **Build image**:
+1. **Build the ARM binary** (workspace is embedded automatically):
    ```bash
-   cd luckfox-pico-sdk
-   ./build.sh lunch   # Select your board config
-   ./build.sh
+   make build-arm
+   # Output: build/luckyclaw-linux-arm
    ```
 
-The firmware image will be in `luckfox-pico-sdk/output/image/`.
+2. **Clone the SDK** (one-time setup):
+   ```bash
+   git clone https://github.com/LuckfoxTECH/luckfox-pico.git luckfox-pico-sdk
+   ```
+
+3. **Sync the `etc/` overlay to the SDK** (do this if init script or banner changed):
+   ```bash
+   cp -r firmware/overlay/etc/ \
+     luckfox-pico-sdk/project/cfg/BoardConfig_IPC/overlay/luckyclaw-overlay/etc/
+   ```
+
+4. **Copy the ARM binary into the SDK overlay**:
+   ```bash
+   cp build/luckyclaw-linux-arm \
+     luckfox-pico-sdk/project/cfg/BoardConfig_IPC/overlay/luckyclaw-overlay/usr/bin/luckyclaw
+   chmod +x \
+     luckfox-pico-sdk/project/cfg/BoardConfig_IPC/overlay/luckyclaw-overlay/usr/bin/luckyclaw
+   ```
+
+5. **Build the firmware image**:
+   ```bash
+   cd luckfox-pico-sdk && ./build.sh
+   ```
+
+6. **Find the output image**:
+   ```
+   luckfox-pico-sdk/IMAGE/<timestamp>/IMAGES/update.img
+   ```
+   Rename it: `luckyclaw-luckfox_pico_plus_rv110x-vX.Y.Z.img` depending on your board and version.
+
+When a user flashes this image and runs `luckyclaw onboard`, the embedded workspace is extracted to `/oem/.luckyclaw/workspace/`.
 
 ### Project structure
 
 ```
 luckyclaw/
-├── cmd/luckyclaw/main.go    # Entry point, CLI, and onboarding wizard
+├── cmd/luckyclaw/main.go    # Entry point, CLI, onboarding wizard (embeds workspace/)
 ├── pkg/
 │   ├── agent/               # Core agent loop and context builder
 │   ├── bus/                 # Internal message bus
 │   ├── channels/            # Telegram, Discord, and other messaging integrations
 │   ├── config/              # Configuration and system settings
 │   ├── providers/           # LLM provider implementations (OpenRouter, etc.)
+│   ├── skills/              # Skill loader and installer
 │   ├── tools/               # Agent tools (shell, file, i2c, spi, send_file)
 │   └── ...
-├── firmware/                # SDK overlay files and init scripts
-├── workspace/               # Default templates for the agent workspace
+├── firmware/overlay/etc/    # Init script + SSH banner baked into firmware image
+├── workspace/               # Templates embedded into binary via go:embed
 └── assets/                  # Documentation images and media
 ```
+
+
 
 ### Performance tuning
 

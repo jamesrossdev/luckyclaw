@@ -20,8 +20,8 @@ pkg/cron/                 ← Scheduled tasks (reminders etc)
 pkg/heartbeat/            ← Periodic heartbeat (checks HEARTBEAT.md)
 pkg/tools/                ← Agent tools (exec, read_file, write_file, web, etc)
 pkg/skills/               ← Skill system (installable capabilities)
-workspace/                ← Embedded templates (USER.md, IDENTITY.md, AGENT.md)
-firmware/overlay/         ← Files baked into Luckfox firmware image
+workspace/                ← Workspace templates embedded into binary via go:embed
+firmware/overlay/etc/     ← Init script + SSH banner baked into firmware rootfs.img
 ```
 
 ## Critical Hardware Constraints
@@ -43,7 +43,7 @@ firmware/overlay/         ← Files baked into Luckfox firmware image
 - **CLI**: Added `luckyclaw stop`, `restart`, `gateway -b` (background)
 - **Init script**: Auto-starts gateway on boot with OOM protection
 - **SSH banner**: Shows ASCII art, status, memory, all commands on login
-- **Default model**: `google/gemini-2.0-flash-exp:free` (free tier)
+- **Default model**: `stepfun/step-3.5-flash:free` (free tier)
 - **Defaults**: `max_tokens=16384`, `max_tool_iterations=25` (tuned for web search headroom)
 
 ### What We Did NOT Change
@@ -87,7 +87,27 @@ A shallow clone of the upstream PicoClaw repo is kept at `picoclaw-latest/` (git
 ### 12. Log File Destinations & Workspace Paths
 - **Gateway log**: `/var/log/luckyclaw.log` (stdout/stderr from the init script). The init script uses an `sh -c "exec ..."` wrapper because BusyBox's `start-stop-daemon -b` redirects fds to `/dev/null` before shell redirects take effect.
 - **Heartbeat log**: `<workspace>/heartbeat.log` (written directly by the heartbeat service, not stdout).
-- **Runtime workspace**: `/oem/.luckyclaw/workspace/` — this is where the bot actually reads/writes data at runtime. The firmware overlay installs template files to `/root/.luckyclaw/workspace/` but these are NOT used at runtime because `luckyclaw onboard` creates its config at `/oem/`. Any default template changes must also be reflected in `createDefaultHeartbeatTemplate()` in `pkg/heartbeat/service.go`.
+- **Runtime workspace**: `/oem/.luckyclaw/workspace/` — this is where the bot reads/writes data at runtime. `luckyclaw onboard` creates it by extracting the `workspace/` directory that is **embedded directly into the binary** via `go:embed` at compile time. `firmware/overlay/root/` is NOT involved in this — nothing reads `/root/.luckyclaw/` at runtime.
+
+### 13. Firmware Overlay Structure
+Only two parts of `firmware/overlay/` are meaningful:
+- `firmware/overlay/etc/` — init script, SSH banner, timezone. **Must be tracked in git.** Gets baked into `rootfs.img`.
+- `firmware/overlay/root/` — **Dead weight. Do not use.** Nothing reads `/root/.luckyclaw/` at runtime; workspace data comes from the binary embed.
+- `firmware/overlay/usr/` — **Not tracked in git.** The ARM binary is compiled at SDK build time and placed here; it is not stored in the repo.
+
+### 14. Binary-Only Updates (No Reflash Required)
+The binary at `/usr/bin/luckyclaw` lives on the writable `rootfs` partition and can be replaced via SCP at any time without reflashing the firmware. This is how all development deploys work. Because `workspace/` is embedded in the binary, updating the binary also delivers new/updated skills and templates to users when they next run `luckyclaw onboard`. This architecture makes **over-the-air (OTA) auto-update** possible: the binary could check GitHub Releases, download a new ARM build, kill itself, overwrite `/usr/bin/luckyclaw`, and restart via the init script.
+
+### 15. Project Philosophy — Conservative by Design
+LuckyClaw is **not** trying to be PicoClaw or nanobot. It is PicoClaw's simpler, more conservative sibling — built for normal people who want a cheap, reliable AI assistant, not developers who need MCP, vision pipelines, or Web UIs.
+
+**Upstream evaluation policy**: When asked to check what PicoClaw is up to or evaluate upstream changes, apply this filter:
+- ✅ **Always port**: Security fixes, crash fixes, data loss fixes, reliability improvements
+- ✅ **Consider porting**: Genuinely useful features that benefit everyday users (e.g., better memory handling, improved session stability, Telegram reliability fixes)
+- ❌ **Never port**: Feature additions targeting developers or power users (MCP, vision, Web UI, system tray, new channels, new providers, model routing)
+
+When in doubt, ask: *"Would a normal person on a $10 board benefit from this?"* If the answer is no, leave it upstream.
+ 
 
 ## Build & Deploy
 
@@ -101,7 +121,7 @@ This runs `deps`, `fmt`, `vet`, and the full `test` suite in one command.
 ### Cross-Compile
 ```bash
 GOOS=linux GOARCH=arm GOARM=7 CGO_ENABLED=0 \
-  go build -ldflags "-s -w -X main.version=0.2.0" \
+  go build -ldflags "-s -w -X main.version=0.2.x" \
   -o build/luckyclaw-linux-arm ./cmd/luckyclaw
 ```
 
@@ -130,10 +150,36 @@ luckyclaw gateway -b  # Start in background
 luckyclaw stop        # Stop cleanly
 ```
 
-### SDK Overlay (for firmware builds)
-Keep these directories in sync:
-- `firmware/overlay/` — canonical overlay files
-- `luckfox-pico-sdk/project/cfg/BoardConfig_IPC/overlay/luckyclaw-overlay/` — SDK build overlay
+### Build Distributable Firmware Image
+
+A distributable `.img` bundles the ARM binary (with `workspace/` embedded) + the init script + SSH banner into a single flashable file. Steps:
+
+```bash
+# 1. Build ARM binary (go:embed bakes workspace/ into it automatically)
+make build-arm
+# Output: build/luckyclaw-linux-arm
+
+# 2. Copy binary into the SDK overlay (untracked — do this every time before building image)
+cp build/luckyclaw-linux-arm \
+  luckfox-pico-sdk/project/cfg/BoardConfig_IPC/overlay/luckyclaw-overlay/usr/bin/luckyclaw
+chmod +x luckfox-pico-sdk/project/cfg/BoardConfig_IPC/overlay/luckyclaw-overlay/usr/bin/luckyclaw
+
+# 3. Build the firmware image
+cd luckfox-pico-sdk && ./build.sh
+
+# 4. Output image is at:
+# luckfox-pico-sdk/IMAGE/<timestamp>/IMAGES/update.img
+# Rename for distribution: luckyclaw-luckfox_pico_plus_rv1103-vX.Y.Z.img
+```
+
+> **Note:** The SDK overlay `etc/` is kept in sync with `firmware/overlay/etc/` in the repo. If you modify the init script or SSH banner, copy the changes to both locations before building.
+
+> **What's in the image:** `update.img` = kernel + rootfs (containing `/usr/bin/luckyclaw` with embedded workspace) + oem partition. When a user runs `luckyclaw onboard` after flashing, the embedded workspace is extracted to `/oem/.luckyclaw/workspace/`.
+
+### SDK Overlay Sync
+The SDK overlay `etc/` must stay in sync with the repo:
+- `firmware/overlay/etc/` — canonical, tracked in git
+- `luckfox-pico-sdk/project/cfg/BoardConfig_IPC/overlay/luckyclaw-overlay/etc/` — SDK copy, NOT tracked in git
 
 ## File Map
 

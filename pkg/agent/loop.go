@@ -48,15 +48,16 @@ type AgentLoop struct {
 
 // processOptions configures how a message is processed
 type processOptions struct {
-	SessionKey      string // Session identifier for history/context
-	Channel         string // Target channel for tool execution
-	ChatID          string // Target chat ID for tool execution
-	UserMessage     string // User message content (may include prefix)
-	DefaultResponse string // Response when LLM returns empty
-	EnableSummary   bool   // Whether to trigger summarization
-	SendResponse    bool   // Whether to send response via bus
-	NoHistory       bool   // If true, don't load session history (for heartbeat)
-	HeartbeatMode   bool   // If true, exclude message/send_file tools from LLM
+	SessionKey      string            // Session identifier for history/context
+	Channel         string            // Target channel for tool execution
+	ChatID          string            // Target chat ID for tool execution
+	UserMessage     string            // User message content (may include prefix)
+	DefaultResponse string            // Response when LLM returns empty
+	EnableSummary   bool              // Whether to trigger summarization
+	SendResponse    bool              // Whether to send response via bus
+	NoHistory       bool              // If true, don't load session history (for heartbeat)
+	HeartbeatMode   bool              // If true, exclude message/send_file tools from LLM
+	Metadata        map[string]string // Optional message metadata (e.g. guild_id for Discord)
 }
 
 // createToolRegistry creates a tool registry with common tools.
@@ -90,15 +91,15 @@ func createToolRegistry(workspace string, restrict bool, cfg *config.Config, msg
 	registry.Register(tools.NewSPITool())
 
 	// Message tool - available to both agent and subagent
-	// Subagent uses it to communicate directly with user
+	// Uses SendDirect for synchronous sends so errors (e.g. Discord 403) are
+	// returned to the LLM, preventing infinite retry loops.
 	messageTool := tools.NewMessageTool()
 	messageTool.SetSendCallback(func(channel, chatID, content string) error {
-		msgBus.PublishOutbound(bus.OutboundMessage{
+		return msgBus.SendDirect(context.Background(), bus.OutboundMessage{
 			Channel: channel,
 			ChatID:  chatID,
 			Content: content,
 		})
-		return nil
 	})
 	registry.Register(messageTool)
 
@@ -114,6 +115,32 @@ func createToolRegistry(workspace string, restrict bool, cfg *config.Config, msg
 		return nil
 	})
 	registry.Register(sendFileTool)
+
+	// Discord moderation tools — only registered when Discord is enabled.
+	// Users not using Discord will never see these tools in their agent context.
+	if cfg.Channels.Discord.Enabled {
+		discordDeleteTool := tools.NewDiscordDeleteMessageTool()
+		discordDeleteTool.SetSendCallback(func(channel, chatID, content string) error {
+			msgBus.PublishOutbound(bus.OutboundMessage{
+				Channel: channel,
+				ChatID:  chatID,
+				Content: content,
+			})
+			return nil
+		})
+		registry.Register(discordDeleteTool)
+
+		discordTimeoutTool := tools.NewDiscordTimeoutUserTool()
+		discordTimeoutTool.SetSendCallback(func(channel, chatID, content string) error {
+			msgBus.PublishOutbound(bus.OutboundMessage{
+				Channel: channel,
+				ChatID:  chatID,
+				Content: content,
+			})
+			return nil
+		})
+		registry.Register(discordTimeoutTool)
+	}
 
 	return registry
 }
@@ -195,11 +222,16 @@ func (al *AgentLoop) Run(ctx context.Context) error {
 				}
 
 				if !alreadySent {
-					al.bus.PublishOutbound(bus.OutboundMessage{
+					outMsg := bus.OutboundMessage{
 						Channel: msg.Channel,
 						ChatID:  msg.ChatID,
 						Content: response,
-					})
+					}
+					// For Discord messages, reply-with-quote using the triggering message ID
+					if msg.Channel == "discord" && msg.Metadata != nil {
+						outMsg.ReplyToID = msg.Metadata["message_id"]
+					}
+					al.bus.PublishOutbound(outMsg)
 				}
 			}
 		}
@@ -214,6 +246,12 @@ func (al *AgentLoop) Stop() {
 
 func (al *AgentLoop) RegisterTool(tool tools.Tool) {
 	al.tools.Register(tool)
+}
+
+// GetTool retrieves a tool by name from the registry.
+// Used by main.go to wire Discord moderation callbacks.
+func (al *AgentLoop) GetTool(name string) (tools.Tool, bool) {
+	return al.tools.Get(name)
 }
 
 func (al *AgentLoop) SetChannelManager(cm *channels.Manager) {
@@ -296,6 +334,7 @@ func (al *AgentLoop) processMessage(ctx context.Context, msg bus.InboundMessage)
 		Channel:         msg.Channel,
 		ChatID:          msg.ChatID,
 		UserMessage:     msg.Content,
+		Metadata:        msg.Metadata,
 		DefaultResponse: "I've completed processing but have no response to give.",
 		EnableSummary:   true,
 		SendResponse:    false,
@@ -369,7 +408,7 @@ func (al *AgentLoop) runAgentLoop(ctx context.Context, opts processOptions) (str
 	}
 
 	// 1. Update tool contexts
-	al.updateToolContexts(opts.Channel, opts.ChatID)
+	al.updateToolContexts(opts.Channel, opts.ChatID, opts.Metadata)
 
 	// 2. Build messages (skip history for heartbeat)
 	var history []providers.Message
@@ -385,6 +424,7 @@ func (al *AgentLoop) runAgentLoop(ctx context.Context, opts processOptions) (str
 		nil,
 		opts.Channel,
 		opts.ChatID,
+		opts.Metadata,
 	)
 
 	// 3. Save user message to session
@@ -462,6 +502,9 @@ func (al *AgentLoop) runLLMIteration(ctx context.Context, messages []providers.M
 		if opts.HeartbeatMode {
 			providerToolDefs = filterHeartbeatTools(providerToolDefs)
 		}
+		if opts.Channel == "discord" && opts.Metadata["is_dm"] != "true" {
+			providerToolDefs = filterDiscordTools(providerToolDefs)
+		}
 
 		// Log LLM request details
 		logger.DebugCF("agent", "LLM request",
@@ -538,6 +581,7 @@ func (al *AgentLoop) runLLMIteration(ctx context.Context, messages []providers.M
 					nil,
 					opts.Channel,
 					opts.ChatID,
+					nil, // Metadata already processed in system prompt of the original call
 				)
 
 				continue
@@ -679,8 +723,28 @@ func filterHeartbeatTools(tools []providers.ToolDefinition) []providers.ToolDefi
 	return filtered
 }
 
+// filterDiscordTools strictly whitelists tools allowed in public Discord channels
+func filterDiscordTools(tools []providers.ToolDefinition) []providers.ToolDefinition {
+	allowed := map[string]bool{
+		"message":                true,
+		"discord_delete_message": true,
+		"discord_timeout_user":   true,
+		"web_search_duckduckgo":  true,
+		"web_search_brave":       true,
+		"fetch_url":              true,
+	}
+
+	filtered := make([]providers.ToolDefinition, 0, len(tools))
+	for _, t := range tools {
+		if allowed[t.Function.Name] {
+			filtered = append(filtered, t)
+		}
+	}
+	return filtered
+}
+
 // updateToolContexts updates the context for tools that need channel/chatID info.
-func (al *AgentLoop) updateToolContexts(channel, chatID string) {
+func (al *AgentLoop) updateToolContexts(channel, chatID string, metadata map[string]string) {
 	// Use ContextualTool interface instead of type assertions
 	if tool, ok := al.tools.Get("message"); ok {
 		if mt, ok := tool.(tools.ContextualTool); ok {
@@ -700,6 +764,22 @@ func (al *AgentLoop) updateToolContexts(channel, chatID string) {
 	if tool, ok := al.tools.Get("subagent"); ok {
 		if st, ok := tool.(tools.ContextualTool); ok {
 			st.SetContext(channel, chatID)
+		}
+	}
+	if tool, ok := al.tools.Get("discord_delete_message"); ok {
+		if dt, ok := tool.(tools.ContextualTool); ok {
+			dt.SetContext(channel, chatID)
+		}
+	}
+	if tool, ok := al.tools.Get("discord_timeout_user"); ok {
+		if tt, ok := tool.(tools.ContextualTool); ok {
+			tt.SetContext(channel, chatID)
+		}
+		// Also pass guild_id from metadata so the tool never relies on the LLM for it.
+		if tt, ok := tool.(*tools.DiscordTimeoutUserTool); ok {
+			if metadata != nil {
+				tt.SetGuildID(metadata["guild_id"])
+			}
 		}
 	}
 }

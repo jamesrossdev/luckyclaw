@@ -15,6 +15,8 @@ import (
 	"github.com/jamesrossdev/luckyclaw/pkg/voice"
 )
 
+const maxTimeoutDays = 28 // Discord maximum timeout duration
+
 const (
 	transcriptionTimeout = 30 * time.Second
 	sendTimeout          = 10 * time.Second
@@ -108,8 +110,13 @@ func (c *DiscordChannel) Send(ctx context.Context, msg bus.OutboundMessage) erro
 
 	chunks := splitMessage(msg.Content, 1500) // Discord has a limit of 2000 characters per message, leave 500 for natural split e.g. code blocks
 
-	for _, chunk := range chunks {
-		if err := c.sendChunk(ctx, channelID, chunk); err != nil {
+	for i, chunk := range chunks {
+		// Only quote-reply on the first chunk
+		replyToID := ""
+		if i == 0 {
+			replyToID = msg.ReplyToID
+		}
+		if err := c.sendChunk(ctx, channelID, chunk, replyToID); err != nil {
 			return err
 		}
 	}
@@ -243,15 +250,29 @@ func findLastSpace(s string, searchWindow int) int {
 	return -1
 }
 
-func (c *DiscordChannel) sendChunk(ctx context.Context, channelID, content string) error {
-	// 使用传入的 ctx 进行超时控制
+func (c *DiscordChannel) sendChunk(ctx context.Context, channelID, content, replyToID string) error {
 	sendCtx, cancel := context.WithTimeout(ctx, sendTimeout)
 	defer cancel()
 
 	done := make(chan error, 1)
 	go func() {
-		_, err := c.session.ChannelMessageSend(channelID, content)
-		done <- err
+		if replyToID != "" {
+			// Send with quote-reply reference
+			_, err := c.session.ChannelMessageSendComplex(channelID, &discordgo.MessageSend{
+				Content: content,
+				Reference: &discordgo.MessageReference{
+					MessageID: replyToID,
+					ChannelID: channelID,
+				},
+				AllowedMentions: &discordgo.MessageAllowedMentions{
+					RepliedUser: true,
+				},
+			})
+			done <- err
+		} else {
+			_, err := c.session.ChannelMessageSend(channelID, content)
+			done <- err
+		}
 	}()
 
 	select {
@@ -265,7 +286,7 @@ func (c *DiscordChannel) sendChunk(ctx context.Context, channelID, content strin
 	}
 }
 
-// appendContent 安全地追加内容到现有文本
+// appendContent safely appends a suffix to existing text, joining with a newline.
 func appendContent(content, suffix string) string {
 	if content == "" {
 		return suffix
@@ -282,13 +303,68 @@ func (c *DiscordChannel) handleMessage(s *discordgo.Session, m *discordgo.Messag
 		return
 	}
 
-	if err := c.session.ChannelTyping(m.ChannelID); err != nil {
-		logger.ErrorCF("discord", "Failed to send typing indicator", map[string]any{
-			"error": err.Error(),
+	// DM filter: drop direct messages when disable_dms is set
+	if c.config.DisableDMs && m.GuildID == "" {
+		logger.DebugCF("discord", "DM ignored (disable_dms=true)", map[string]any{
+			"user_id": m.Author.ID,
 		})
+		return
 	}
 
-	// 检查白名单，避免为被拒绝的用户下载附件和转录
+	// In server channels (GuildID != ""), only respond when @mentioned or when
+	// the message is a reply to one of the bot's own messages.
+	if m.GuildID != "" {
+		botID := s.State.User.ID
+		mentioned := false
+		for _, u := range m.Mentions {
+			if u.ID == botID {
+				mentioned = true
+				break
+			}
+		}
+		// Also respond when user replies to a bot message
+		if !mentioned && m.ReferencedMessage != nil && m.ReferencedMessage.Author != nil {
+			if m.ReferencedMessage.Author.ID == botID {
+				mentioned = true
+			}
+		}
+		// Also respond when the bot's own managed role is @mentioned
+		if !mentioned && len(m.MentionRoles) > 0 {
+			if botMember, err := s.State.Member(m.GuildID, botID); err == nil {
+				for _, botRoleID := range botMember.Roles {
+					for _, mentionedRoleID := range m.MentionRoles {
+						if botRoleID == mentionedRoleID {
+							mentioned = true
+							break
+						}
+					}
+					if mentioned {
+						break
+					}
+				}
+			}
+		}
+		if !mentioned {
+			return
+		}
+	}
+
+	// Persistent typing indicator: refresh every 8s for up to 90s so the
+	// "LuckyClaw is typing..." badge stays visible during long LLM calls.
+	typingCtx, stopTyping := context.WithTimeout(context.Background(), 90*time.Second)
+	go func() {
+		for {
+			select {
+			case <-typingCtx.Done():
+				return
+			default:
+				_ = c.session.ChannelTyping(m.ChannelID)
+				time.Sleep(8 * time.Second)
+			}
+		}
+	}()
+	defer stopTyping()
+
 	if !c.IsAllowed(m.Author.ID) {
 		logger.DebugCF("discord", "Message rejected by allowlist", map[string]any{
 			"user_id": m.Author.ID,
@@ -303,10 +379,25 @@ func (c *DiscordChannel) handleMessage(s *discordgo.Session, m *discordgo.Messag
 	}
 
 	content := m.Content
+
+	// Read quoted/referenced message — ONLY for snitch flow (quoting another user's
+	// message). Skip when the quoted message is from the bot itself, since the bot
+	// already has its own responses in session history.
+	if m.ReferencedMessage != nil && m.ReferencedMessage.Author != nil {
+		if m.ReferencedMessage.Author.ID != s.State.User.ID {
+			quotedAuthor := m.ReferencedMessage.Author.Username
+			quotedContent := m.ReferencedMessage.Content
+			if quotedContent != "" {
+				content = fmt.Sprintf("[Quoted message from %s (user_id: %s, message_id: %s): \"%s\"]\n%s",
+					quotedAuthor, m.ReferencedMessage.Author.ID, m.ReferencedMessage.ID, quotedContent, content)
+			}
+		}
+	}
+
 	mediaPaths := make([]string, 0, len(m.Attachments))
 	localFiles := make([]string, 0, len(m.Attachments))
 
-	// 确保临时文件在函数返回时被清理
+	// Ensure temp files are cleaned up on function return.
 	defer func() {
 		for _, file := range localFiles {
 			if err := os.Remove(file); err != nil {
@@ -330,7 +421,7 @@ func (c *DiscordChannel) handleMessage(s *discordgo.Session, m *discordgo.Messag
 				if c.transcriber != nil && c.transcriber.IsAvailable() {
 					ctx, cancel := context.WithTimeout(c.getContext(), transcriptionTimeout)
 					result, err := c.transcriber.Transcribe(ctx, localPath)
-					cancel() // 立即释放context资源，避免在for循环中泄漏
+					cancel() // Release context resources immediately to avoid leak in loop
 
 					if err != nil {
 						logger.ErrorCF("discord", "Voice transcription failed", map[string]any{
@@ -386,6 +477,22 @@ func (c *DiscordChannel) handleMessage(s *discordgo.Session, m *discordgo.Messag
 		"is_dm":        fmt.Sprintf("%t", m.GuildID == ""),
 	}
 
+	// Resolve sender's Discord roles to names so the LLM can see them.
+	if m.Member != nil && len(m.Member.Roles) > 0 {
+		var roleNames []string
+		for _, roleID := range m.Member.Roles {
+			if role, err := s.State.Role(m.GuildID, roleID); err == nil {
+				roleNames = append(roleNames, role.Name)
+			}
+		}
+		if len(roleNames) > 0 {
+			metadata["sender_roles"] = strings.Join(roleNames, ", ")
+		}
+	}
+
+	// Trigger "is typing" indicator while the agent processes this message
+	s.ChannelTyping(m.ChannelID)
+
 	c.HandleMessage(senderID, m.ChannelID, content, mediaPaths, metadata)
 }
 
@@ -393,4 +500,33 @@ func (c *DiscordChannel) downloadAttachment(url, filename string) string {
 	return utils.DownloadFile(url, filename, utils.DownloadOptions{
 		LoggerPrefix: "discord",
 	})
+}
+
+// DeleteMessage deletes a message in the given channel.
+// Used by the discord_delete_message tool.
+func (c *DiscordChannel) DeleteMessage(channelID, messageID string) error {
+	if !c.IsRunning() {
+		return fmt.Errorf("discord bot not running")
+	}
+	return c.session.ChannelMessageDelete(channelID, messageID)
+}
+
+// TimeoutUser applies a timeout to a guild member until the specified time.
+// Used by the discord_timeout_user tool.
+func (c *DiscordChannel) TimeoutUser(guildID, userID string, until time.Time) error {
+	if !c.IsRunning() {
+		return fmt.Errorf("discord bot not running")
+	}
+	// Discord maximum timeout is 28 days
+	maxUntil := time.Now().Add(time.Duration(maxTimeoutDays) * 24 * time.Hour)
+	if until.After(maxUntil) {
+		until = maxUntil
+	}
+	return c.session.GuildMemberTimeout(guildID, userID, &until)
+}
+
+// Session returns the underlying discordgo session.
+// Used to set up moderation tool callbacks.
+func (c *DiscordChannel) Session() *discordgo.Session {
+	return c.session
 }

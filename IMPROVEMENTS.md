@@ -26,6 +26,18 @@ Items listed here are planned enhancements that are not yet scheduled for implem
 
 ## Installation / Deployment
 
+### `luckyclaw install` Command
+**Priority**: High
+**Description**: Create a new subcommand `luckyclaw install` that automates the setup of LuckyClaw on a stock Linux/Buildroot environment. It should:
+1. Extract and write the init script to `/etc/init.d/S99luckyclaw` (using `go:embed` from the binary).
+2. Extract and write the SSH banner to `/etc/profile.d/luckyclaw-banner.sh`.
+3. Configure the binary for OOM protection (calling `oom_score_adj` logic).
+4. Ensure the default `/oem/.luckyclaw/workspace` exists (calling `onboard` logic if missing).
+
+**Benefit**: Enables a "one-liner" installation for users who already have a working board running stock firmware, without requiring them to reflash using our custom image. Supports the "conservative brother" vision by making the tool easier to adopt on any ARM/Linux hardware.
+
+**Blocked by**: Nothing.
+
 ### OTA Binary Updates (No Reflash)
 **Priority**: Medium
 **Description**: The LuckyClaw binary at `/usr/bin/luckyclaw` can be replaced via SCP without reflashing the entire firmware, since user data lives on `/oem/.luckyclaw/` (a separate partition). An `luckyclaw update` command could check the GitHub Releases API for the latest version, download the matching ARM binary, replace itself, and restart — all without touching config, sessions, cron jobs, or memory.
