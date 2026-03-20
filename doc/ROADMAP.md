@@ -30,7 +30,7 @@ Items are prioritized by readiness and impact. Items may be moved between versio
 - Port `shell_process_unix.go` from upstream (process group cleanup for exec tool)
 - Cron tool `at_time` parameter (ISO-8601 absolute time for reminders)
 
-## v0.3.x (Next Minor)
+## v0.2.x (Next Minor)
 
 - Auto-update command (`luckyclaw update`) — binary-only OTA updates
 - Tool definition caching
