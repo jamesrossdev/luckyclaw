@@ -496,7 +496,7 @@ func onboard() {
 				waUserID := promptLine("  Your WhatsApp number (optional, press Enter to allow ALL numbers): ")
 				var expectedCode string
 				if waUserID != "" {
-					codeLetters := []rune("ABCDEFGHJKLMNPQRSTUVWXYZ23456789")
+					codeLetters := []rune("0123456789")
 					code := make([]rune, 4)
 					for i := range code {
 						code[i] = codeLetters[rand.Intn(len(codeLetters))]
