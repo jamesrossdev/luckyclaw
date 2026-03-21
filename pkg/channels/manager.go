@@ -59,18 +59,8 @@ func (m *Manager) initChannels() error {
 		}
 	}
 
-	if m.config.Channels.WhatsApp.Enabled && m.config.Channels.WhatsApp.BridgeURL != "" {
-		logger.DebugC("channels", "Attempting to initialize WhatsApp channel")
-		whatsapp, err := NewWhatsAppChannel(m.config.Channels.WhatsApp, m.bus)
-		if err != nil {
-			logger.ErrorCF("channels", "Failed to initialize WhatsApp channel", map[string]interface{}{
-				"error": err.Error(),
-			})
-		} else {
-			m.channels["whatsapp"] = whatsapp
-			logger.InfoC("channels", "WhatsApp channel enabled successfully")
-		}
-	}
+	// Native WhatsApp integration is now registered externally from main.go
+	// to avoid circular dependencies with the whatsapp subpackage.
 
 	if m.config.Channels.Feishu.Enabled {
 		logger.DebugC("channels", "Attempting to initialize Feishu channel")

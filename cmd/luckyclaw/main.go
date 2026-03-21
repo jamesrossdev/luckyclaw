@@ -43,6 +43,9 @@ import (
 	"github.com/jamesrossdev/luckyclaw/pkg/state"
 	"github.com/jamesrossdev/luckyclaw/pkg/tools"
 	"github.com/jamesrossdev/luckyclaw/pkg/voice"
+
+	// Native WhatsApp
+	"github.com/jamesrossdev/luckyclaw/pkg/channels/whatsapp"
 )
 
 //go:generate cp -r ../../workspace .
@@ -158,6 +161,8 @@ func main() {
 		stopCmd()
 	case "restart":
 		restartCmd()
+	case "install":
+		installCmd()
 	case "status":
 		statusCmd()
 	case "migrate":
@@ -238,6 +243,7 @@ func printHelp() {
 	fmt.Println("  gateway       Start luckyclaw gateway (-b for background)")
 	fmt.Println("  stop          Stop running gateway")
 	fmt.Println("  restart       Restart gateway (stop + start in background)")
+	fmt.Println("  install       Install init script and SSH banner to system")
 	fmt.Println("  status        Show luckyclaw status")
 	fmt.Println("  cron          Manage scheduled tasks")
 	fmt.Println("  auth          Manage authentication (login, logout, status)")
@@ -424,52 +430,79 @@ func onboard() {
 	fmt.Println()
 	fmt.Println("  Step 4: Messaging Channels")
 	fmt.Println("  ──────────────────────────")
-	fmt.Println("  Set up one or both chat channels. You can always configure these later")
-	fmt.Println("  by editing config.json or re-running 'luckyclaw onboard'.")
+	fmt.Println("  Set up your chat channels. You can enable multiple platforms.")
 	fmt.Println()
 
-	// Telegram
-	if promptYN("  Set up Telegram?") {
+	for {
+		fmt.Println("  Select a platform to configure:")
+		fmt.Println("  1. Telegram")
+		fmt.Println("  2. Discord")
+		fmt.Println("  3. WhatsApp (Native QR pairing)")
+		fmt.Println("  4. Next Step (Skip/Proceed)")
 		fmt.Println()
-		fmt.Println("  Create a bot via @BotFather on Telegram, then paste the token below.")
-		tgToken := promptLine("  Telegram bot token: ")
-		if tgToken != "" {
-			fmt.Print("  Validating... ")
-			username, err := validateTelegramToken(tgToken)
-			if err != nil {
-				fmt.Printf("⚠ %v\n", err)
-				fmt.Println("  (Token saved anyway — check it later)")
-			} else {
-				fmt.Printf("✓ @%s\n", username)
-			}
 
-			cfg.Channels.Telegram.Enabled = true
-			cfg.Channels.Telegram.Token = tgToken
-
-			tgUserID := promptLine("  Your Telegram user ID (optional, from @userinfobot): ")
-			if tgUserID != "" {
-				cfg.Channels.Telegram.AllowFrom = config.FlexibleStringSlice{tgUserID}
-			}
+		choice := promptLine("  Choice (1-4): ")
+		if choice == "4" || choice == "" {
+			break
 		}
-	}
 
-	// Discord
-	fmt.Println()
-	if promptYN("  Set up Discord?") {
-		fmt.Println()
-		fmt.Println("  Create a bot at https://discord.com/developers/applications")
-		fmt.Println("  Enable MESSAGE CONTENT INTENT in Bot settings, then paste the token.")
-		dcToken := promptLine("  Discord bot token: ")
-		if dcToken != "" {
-			cfg.Channels.Discord.Enabled = true
-			cfg.Channels.Discord.Token = dcToken
+		switch choice {
+		case "1":
+			fmt.Println("\n  [Telegram Setup]")
+			fmt.Println("  Create a bot via @BotFather on Telegram, then paste the token below.")
+			tgToken := promptLine("  Telegram bot token: ")
+			if tgToken != "" {
+				fmt.Print("  Validating... ")
+				username, err := validateTelegramToken(tgToken)
+				if err != nil {
+					fmt.Printf("⚠ %v\n", err)
+					fmt.Println("  (Token saved anyway — check it later)")
+				} else {
+					fmt.Printf("✓ @%s\n", username)
+				}
 
-			dcUserID := promptLine("  Your Discord user ID (optional): ")
-			if dcUserID != "" {
-				cfg.Channels.Discord.AllowFrom = config.FlexibleStringSlice{dcUserID}
+				cfg.Channels.Telegram.Enabled = true
+				cfg.Channels.Telegram.Token = tgToken
+
+				tgUserID := promptLine("  Your Telegram user ID (optional, from @userinfobot): ")
+				if tgUserID != "" {
+					cfg.Channels.Telegram.AllowFrom = config.FlexibleStringSlice{tgUserID}
+				}
+				fmt.Println("  ✓ Telegram configured")
 			}
-			fmt.Println("  ✓ Discord configured")
+		case "2":
+			fmt.Println("\n  [Discord Setup]")
+			fmt.Println("  Create a bot at https://discord.com/developers/applications")
+			fmt.Println("  Enable MESSAGE CONTENT INTENT in Bot settings, then paste the token.")
+			dcToken := promptLine("  Discord bot token: ")
+			if dcToken != "" {
+				cfg.Channels.Discord.Enabled = true
+				cfg.Channels.Discord.Token = dcToken
+
+				dcUserID := promptLine("  Your Discord user ID (optional): ")
+				if dcUserID != "" {
+					cfg.Channels.Discord.AllowFrom = config.FlexibleStringSlice{dcUserID}
+				}
+				fmt.Println("  ✓ Discord configured")
+			}
+		case "3":
+			fmt.Println("\n  [WhatsApp Setup]")
+			fmt.Println("  This will use native WhatsApp Web pairing.")
+			fmt.Println("  The QR code will be shown when you start the gateway.")
+			if promptYN("  Enable WhatsApp native channel?") {
+				cfg.Channels.WhatsApp.Enabled = true
+				cfg.Channels.WhatsApp.SessionPath = filepath.Join(cfg.WorkspacePath(), "whatsapp")
+				
+				waUserID := promptLine("  Your WhatsApp number (optional, e.g. 447123456789): ")
+				if waUserID != "" {
+					cfg.Channels.WhatsApp.AllowFrom = config.FlexibleStringSlice{waUserID}
+				}
+				fmt.Println("  ✓ WhatsApp enabled")
+			}
+		default:
+			fmt.Println("  Invalid choice, please try again.")
 		}
+		fmt.Println("\n  ──────────────────────────")
 	}
 
 	// Atomic save — everything at once
@@ -499,6 +532,11 @@ func onboard() {
 	fmt.Println()
 	if promptYN("  Start LuckyClaw gateway now?") {
 		gatewayStartBackground()
+		if cfg.Channels.WhatsApp.Enabled {
+			fmt.Println("\n  🦞 WhatsApp pairing is enabled.")
+			fmt.Println("  The QR code has been written to: /var/log/luckyclaw.log")
+			fmt.Println("  Or run 'luckyclaw stop && luckyclaw gateway' to see it here.")
+		}
 	}
 
 	fmt.Println()
@@ -599,17 +637,19 @@ func gatewayStartBackground() {
 		os.Exit(1)
 	}
 
+	pid := cmd.Process.Pid
+
 	// Write PID file
 	pidFile := "/var/run/luckyclaw.pid"
 	if pf, err := os.Create(pidFile); err == nil {
-		fmt.Fprintf(pf, "%d", cmd.Process.Pid)
+		fmt.Fprintf(pf, "%d", pid)
 		pf.Close()
 	}
 
 	cmd.Process.Release()
 	f.Close()
 
-	fmt.Printf("🦞 LuckyClaw started in background (PID %d)\n", cmd.Process.Pid)
+	fmt.Printf("🦞 LuckyClaw started in background (PID %d)\n", pid)
 	fmt.Printf("   Log: %s\n", logFile)
 	fmt.Println("   Use 'luckyclaw stop' to stop or 'luckyclaw restart' to restart")
 }
@@ -999,6 +1039,17 @@ func gatewayCmd() {
 	// Inject channel manager into agent loop for command handling
 	agentLoop.SetChannelManager(channelManager)
 
+	// Register native WhatsApp if enabled
+	if cfg.Channels.WhatsApp.Enabled {
+		wa, err := whatsapp.NewWhatsAppChannel(cfg.Channels.WhatsApp, msgBus, cfg.Channels.WhatsApp.SessionPath)
+		if err != nil {
+			logger.ErrorCF("whatsapp", "Failed to initialize native WhatsApp channel", map[string]interface{}{"error": err.Error()})
+		} else {
+			channelManager.RegisterChannel("whatsapp", wa)
+			logger.InfoC("whatsapp", "Native WhatsApp channel registered")
+		}
+	}
+
 	// Wire Discord moderation tool callbacks from the live DiscordChannel
 	if discordCh, ok := channelManager.GetChannel("discord"); ok {
 		if dc, ok := discordCh.(*channels.DiscordChannel); ok {
@@ -1228,13 +1279,25 @@ func statusCmd() {
 
 	// Channel status
 	fmt.Println()
+	hasChannels := false
 	if cfg.Channels.Telegram.Enabled {
 		fmt.Println("  Telegram: enabled ✓")
+		hasChannels = true
 	}
 	if cfg.Channels.Discord.Enabled {
 		fmt.Println("  Discord: enabled ✓")
+		hasChannels = true
 	}
-	if !cfg.Channels.Telegram.Enabled && !cfg.Channels.Discord.Enabled {
+	if cfg.Channels.WhatsApp.Enabled {
+		fmt.Println("  WhatsApp: enabled ✓")
+		hasChannels = true
+	}
+	if cfg.Channels.Slack.Enabled {
+		fmt.Println("  Slack: enabled ✓")
+		hasChannels = true
+	}
+
+	if !hasChannels {
 		fmt.Println("  Channels: none enabled")
 	}
 
@@ -2002,4 +2065,43 @@ func applySystemTimezone(cfg *config.Config) {
 	// match the system prompt time without requiring zoneinfo db.
 	posixTZ := getPosixTZ(cfg.Gateway.UTCOffset)
 	os.Setenv("TZ", posixTZ)
+}
+func installCmd() {
+	if os.Getuid() != 0 {
+		fmt.Println("  ⚠ Warning: This command usually requires root privileges to write to /etc.")
+	}
+
+	fmt.Println("\n  🦞 LuckyClaw Installation")
+	fmt.Println("  ─────────────────────────")
+
+	// 1. Init script
+	srcInit := "firmware/overlay/etc/init.d/S99luckyclaw"
+	dstInit := "/etc/init.d/S99luckyclaw"
+	fmt.Printf("  Installing init script to %s... ", dstInit)
+	if err := copyFile(srcInit, dstInit, 0755); err != nil {
+		fmt.Printf("✗\n    Error: %v\n", err)
+	} else {
+		fmt.Println("✓")
+	}
+
+	// 2. SSH Banner
+	srcBanner := "firmware/overlay/etc/profile.d/luckyclaw-banner.sh"
+	dstBanner := "/etc/profile.d/luckyclaw-banner.sh"
+	fmt.Printf("  Installing SSH banner to %s... ", dstBanner)
+	if err := copyFile(srcBanner, dstBanner, 0644); err != nil {
+		fmt.Printf("✗\n    Error: %v\n", err)
+	} else {
+		fmt.Println("✓")
+	}
+
+	fmt.Println("\n  ✓ Installation complete.")
+	fmt.Println("  You can now start LuckyClaw via: /etc/init.d/S99luckyclaw start")
+}
+
+func copyFile(src, dst string, mode os.FileMode) error {
+	input, err := os.ReadFile(src)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(dst, input, mode)
 }

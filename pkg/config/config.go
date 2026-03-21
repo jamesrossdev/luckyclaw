@@ -83,9 +83,11 @@ type ChannelsConfig struct {
 }
 
 type WhatsAppConfig struct {
-	Enabled   bool                `json:"enabled" env:"LUCKYCLAW_CHANNELS_WHATSAPP_ENABLED"`
-	BridgeURL string              `json:"bridge_url" env:"LUCKYCLAW_CHANNELS_WHATSAPP_BRIDGE_URL"`
-	AllowFrom FlexibleStringSlice `json:"allow_from" env:"LUCKYCLAW_CHANNELS_WHATSAPP_ALLOW_FROM"`
+	Enabled     bool                `json:"enabled" env:"LUCKYCLAW_CHANNELS_WHATSAPP_ENABLED"`
+	SessionPath string              `json:"session_path" env:"LUCKYCLAW_CHANNELS_WHATSAPP_SESSION_PATH"`
+	PairPhone   string              `json:"pair_phone" env:"LUCKYCLAW_CHANNELS_WHATSAPP_PAIR_PHONE"`
+	BridgeURL   string              `json:"bridge_url" env:"LUCKYCLAW_CHANNELS_WHATSAPP_BRIDGE_URL"`
+	AllowFrom   FlexibleStringSlice `json:"allow_from" env:"LUCKYCLAW_CHANNELS_WHATSAPP_ALLOW_FROM"`
 }
 
 type TelegramConfig struct {
@@ -234,9 +236,11 @@ func DefaultConfig() *Config {
 		},
 		Channels: ChannelsConfig{
 			WhatsApp: WhatsAppConfig{
-				Enabled:   false,
-				BridgeURL: "ws://localhost:3001",
-				AllowFrom: FlexibleStringSlice{},
+				Enabled:     false,
+				SessionPath: "~/.luckyclaw/whatsapp.db",
+				PairPhone:   "",
+				BridgeURL:   "ws://localhost:3001",
+				AllowFrom:   FlexibleStringSlice{},
 			},
 			Telegram: TelegramConfig{
 				Enabled:   false,

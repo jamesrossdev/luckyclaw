@@ -393,6 +393,10 @@ func (al *AgentLoop) processSystemMessage(ctx context.Context, msg bus.InboundMe
 	return "", nil
 }
 
+const (
+	toolLimitResponse = "I've reached `max_tool_iterations` without a final response. Increase `max_tool_iterations` in config.json if this task needs more tool steps."
+)
+
 // runAgentLoop is the core message processing logic.
 // It handles context building, LLM calls, tool execution, and response handling.
 func (al *AgentLoop) runAgentLoop(ctx context.Context, opts processOptions) (string, error) {
@@ -438,10 +442,13 @@ func (al *AgentLoop) runAgentLoop(ctx context.Context, opts processOptions) (str
 		return "", err
 	}
 
-	// If last tool had ForUser content and we already sent it, we might not need to send final response
-	// This is controlled by the tool's Silent flag and ForUser content
+	// 5. Handle empty response and tool limit
+	if iteration >= al.maxIterations && al.maxIterations > 0 {
+		if finalContent == "" {
+			finalContent = toolLimitResponse
+		}
+	}
 
-	// 5. Handle empty response
 	if finalContent == "" {
 		if opts.UserMessage != "" {
 			finalContent = fmt.Sprintf("I wasn't able to answer: \"%s\". Please try again.", utils.Truncate(opts.UserMessage, 100))
