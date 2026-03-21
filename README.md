@@ -340,23 +340,27 @@ To build a distributable firmware image:
    ```
 
 3. **Sync the `etc/` overlay to the SDK** (do this if init script or banner changed):
-   ```bash
-   cp -r firmware/overlay/etc/ \
-     luckfox-pico-sdk/project/cfg/BoardConfig_IPC/overlay/luckyclaw-overlay/etc/
-   ```
+## SDK Overlay & Buildroot Optimization
 
-4. **Copy the ARM binary into the SDK overlay**:
-   ```bash
-   cp build/luckyclaw-linux-arm \
-     luckfox-pico-sdk/project/cfg/BoardConfig_IPC/overlay/luckyclaw-overlay/usr/bin/luckyclaw
-   chmod +x \
-     luckfox-pico-sdk/project/cfg/BoardConfig_IPC/overlay/luckyclaw-overlay/usr/bin/luckyclaw
-   ```
+Because the ARM binary embeds its `workspace/` at compile time, changes to the daemon are zero-friction. However, to construct a completely stripped and optimized Luckfox firmware image from the 5GB SDK, we use tracked overlays and patches.
 
-5. **Build the firmware image**:
-   ```bash
-   cd luckfox-pico-sdk && ./build.sh
-   ```
+### 1. `etc/` Overlay Linkage
+The SDK overlay `etc/` partition must stay in sync with our repo to inject the init script and SSH banner inside `rootfs`:
+```bash
+cp -r firmware/overlay/etc/* luckfox-pico-sdk/project/cfg/BoardConfig_IPC/overlay/luckyclaw-overlay/etc/
+```
+
+### 2. Rootfs Bloatware Purging
+The stock SDK packs ~30MB of bloated diagnostic tools (Python, iperf, v4l2) that we do not need, which dangerously compresses our available working flash space. Apply our storage optimization patch BEFORE building the firmware:
+```bash
+cd luckfox-pico-sdk
+git apply ../firmware/sdk-patches/optimize-rootfs.patch
+```
+
+### 3. Image Build
+```bash
+cd luckfox-pico-sdk && ./build.sh
+```
 
 6. **Find the output image**:
    ```
