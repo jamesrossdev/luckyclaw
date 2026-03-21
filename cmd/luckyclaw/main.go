@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"math/rand"
 	"net/http"
 	"os"
 	"os/exec"
@@ -488,15 +489,32 @@ func onboard() {
 		case "3":
 			fmt.Println("\n  [WhatsApp Setup]")
 			fmt.Println("  This will use native WhatsApp Web pairing.")
-			fmt.Println("  The QR code will be shown when you start the gateway.")
 			if promptYN("  Enable WhatsApp native channel?") {
 				cfg.Channels.WhatsApp.Enabled = true
 				cfg.Channels.WhatsApp.SessionPath = filepath.Join(cfg.WorkspacePath(), "whatsapp")
 				
-				waUserID := promptLine("  Your WhatsApp number (optional, e.g. 447123456789): ")
+				waUserID := promptLine("  Your WhatsApp number (optional, press Enter to allow ALL numbers): ")
+				var expectedCode string
 				if waUserID != "" {
-					cfg.Channels.WhatsApp.AllowFrom = config.FlexibleStringSlice{waUserID}
+					codeLetters := []rune("ABCDEFGHJKLMNPQRSTUVWXYZ23456789")
+					code := make([]rune, 4)
+					for i := range code {
+						code[i] = codeLetters[rand.Intn(len(codeLetters))]
+					}
+					expectedCode = string(code)
 				}
+				
+				lid, err := whatsapp.PerformSetup(cfg.Channels.WhatsApp.SessionPath, expectedCode)
+				
+				if err != nil {
+					fmt.Printf("  ⚠ WhatsApp Setup failed: %v\n", err)
+				} else if expectedCode != "" && lid != "" {
+					fmt.Printf("  ✓ Success! Number authorized (Local ID linked).\n")
+					cfg.Channels.WhatsApp.AllowFrom = config.FlexibleStringSlice{lid}
+				} else {
+					cfg.Channels.WhatsApp.AllowFrom = nil
+				}
+				
 				fmt.Println("  ✓ WhatsApp enabled")
 			}
 		default:
