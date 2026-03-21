@@ -82,7 +82,7 @@ func PerformSetup(sessionPath string, expectedCode string) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		
+
 		for evt := range qrChan {
 			if evt.Event == "code" {
 				qrterminal.GenerateHalfBlock(evt.Code, qrterminal.L, os.Stdout)

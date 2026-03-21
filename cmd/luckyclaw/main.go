@@ -492,7 +492,7 @@ func onboard() {
 			if promptYN("  Enable WhatsApp native channel?") {
 				cfg.Channels.WhatsApp.Enabled = true
 				cfg.Channels.WhatsApp.SessionPath = filepath.Join(cfg.WorkspacePath(), "whatsapp")
-				
+
 				waUserID := promptLine("  Your WhatsApp number (optional, press Enter to allow ALL numbers): ")
 				var expectedCode string
 				if waUserID != "" {
@@ -503,9 +503,9 @@ func onboard() {
 					}
 					expectedCode = string(code)
 				}
-				
+
 				lid, err := whatsapp.PerformSetup(cfg.Channels.WhatsApp.SessionPath, expectedCode)
-				
+
 				if err != nil {
 					fmt.Printf("  ⚠ WhatsApp Setup failed: %v\n", err)
 				} else if expectedCode != "" && lid != "" {
@@ -514,7 +514,7 @@ func onboard() {
 				} else {
 					cfg.Channels.WhatsApp.AllowFrom = nil
 				}
-				
+
 				fmt.Println("  ✓ WhatsApp enabled")
 			}
 		default:
