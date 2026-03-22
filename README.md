@@ -150,8 +150,8 @@ luckyclaw agent
 | ------------ | ------------------- | -------------------------- |
 | **Telegram** | ✅ Ready             | Token from @BotFather      |
 | **Discord**  | ✅ Ready             | Bot token + intents        |
-| **WhatsApp** | 🚧 Work in Progress | —                          |
-| **Slack**    | 🧬 Inherited (untested) | —                       |
+| **WhatsApp** | ✅ Native (Free)     | Use `luckyclaw onboard` to scan Native QR <br> *See [WhatsApp Business Guide](doc/WHATSAPP_BUSINESS.md) for SMB features* |
+| **Slack**    | 🚧 Test Channel      | —                       |
 
 <details>
 <summary><b>Telegram Setup</b> (Recommended)</summary>

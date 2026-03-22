@@ -50,6 +50,8 @@ type WhatsAppChannel struct {
 	reconnecting bool
 	stopping     atomic.Bool    // set once Stop begins; prevents new wg.Add calls
 	wg           sync.WaitGroup // tracks background goroutines (QR handler, reconnect)
+	rateLimiter  map[string][]time.Time
+	rateLimitMu  sync.Mutex
 }
 
 // NewWhatsAppChannel creates a WhatsApp channel that uses whatsmeow for connection.
@@ -66,6 +68,7 @@ func NewWhatsAppChannel(
 		BaseChannel: base,
 		config:      cfg,
 		storePath:   storePath,
+		rateLimiter: make(map[string][]time.Time),
 	}
 	return c, nil
 }
@@ -320,9 +323,103 @@ func (c *WhatsAppChannel) handleIncoming(evt *events.Message) {
 		// It was sent TO someone else by me, ignore it to prevent replying to our own outgoing messages
 		return
 	}
+
+	// v0.2.2-rc6 Rate Limiter (Disabled by default)
+	const maxMessagesPerMinute = 5
+	const rateLimitEnabled = false
+	if rateLimitEnabled {
+		c.rateLimitMu.Lock()
+		now := time.Now()
+		var recent []time.Time
+		for _, t := range c.rateLimiter[senderID] {
+			if now.Sub(t) < time.Minute {
+				recent = append(recent, t)
+			}
+		}
+		recent = append(recent, now)
+		c.rateLimiter[senderID] = recent
+		c.rateLimitMu.Unlock()
+
+		if len(recent) > maxMessagesPerMinute {
+			logger.WarnCF("whatsapp", "Rate limit exceeded, dropping message", map[string]any{"sender": senderID})
+			return
+		}
+	}
+
 	content := evt.Message.GetConversation()
 	if content == "" && evt.Message.ExtendedTextMessage != nil {
 		content = evt.Message.ExtendedTextMessage.GetText()
+	}
+
+	var mediaPaths []string
+	var localFiles []string
+
+	defer func() {
+		for _, file := range localFiles {
+			if err := os.Remove(file); err != nil {
+				logger.DebugCF("whatsapp", "Failed to cleanup temp file", map[string]any{"file": file, "error": err.Error()})
+			}
+		}
+	}()
+
+	var data []byte
+	var err error
+	var fileLength uint64
+
+	c.mu.Lock()
+	pclient := c.client
+	c.mu.Unlock()
+
+	if pclient != nil {
+		if evt.Message.DocumentMessage != nil {
+			fileLength = evt.Message.DocumentMessage.GetFileLength()
+			if content == "" {
+				content = evt.Message.DocumentMessage.GetCaption()
+			}
+			if fileLength <= 5_000_000 {
+				data, err = pclient.Download(context.Background(), evt.Message.DocumentMessage)
+			}
+		} else if evt.Message.ImageMessage != nil {
+			fileLength = evt.Message.ImageMessage.GetFileLength()
+			if content == "" {
+				content = evt.Message.ImageMessage.GetCaption()
+			}
+			if fileLength <= 5_000_000 {
+				data, err = pclient.Download(context.Background(), evt.Message.ImageMessage)
+			}
+		} else if evt.Message.AudioMessage != nil {
+			fileLength = evt.Message.AudioMessage.GetFileLength()
+			if fileLength <= 5_000_000 {
+				data, err = pclient.Download(context.Background(), evt.Message.AudioMessage)
+			}
+		} else if evt.Message.VideoMessage != nil {
+			fileLength = evt.Message.VideoMessage.GetFileLength()
+			if content == "" {
+				content = evt.Message.VideoMessage.GetCaption()
+			}
+			if fileLength <= 5_000_000 {
+				data, err = pclient.Download(context.Background(), evt.Message.VideoMessage)
+			}
+		}
+
+		if fileLength > 5_000_000 {
+			logger.WarnCF("whatsapp", "Dropping media exceeding 5MB limit", map[string]any{"sender": senderID, "size": fileLength})
+			if content == "" {
+				return
+			}
+		} else if len(data) > 0 {
+			if tmpFile, err := os.CreateTemp("", "wa-media-*"); err == nil {
+				tmpFile.Write(data)
+				tmpFile.Close()
+				localFiles = append(localFiles, tmpFile.Name())
+				mediaPaths = append(mediaPaths, tmpFile.Name())
+				content = fmt.Sprintf("[media loaded]\n%s", content)
+			} else {
+				logger.WarnCF("whatsapp", "Failed to save media", map[string]any{"error": err.Error()})
+			}
+		} else if err != nil {
+			logger.WarnCF("whatsapp", "Failed to download media", map[string]any{"error": err.Error()})
+		}
 	}
 
 	// --- v0.2.2-rc4: Group Spam Filtering & Contextual Quotes ---
@@ -408,7 +505,7 @@ func (c *WhatsAppChannel) handleIncoming(evt *events.Message) {
 	}
 	// ------------------------------------------------------------
 
-	if content == "" {
+	if content == "" && len(mediaPaths) == 0 {
 		logger.InfoCF("whatsapp", "Dropping empty message", map[string]any{"sender": senderID})
 		return
 	}
@@ -419,8 +516,23 @@ func (c *WhatsAppChannel) handleIncoming(evt *events.Message) {
 		metadata["user_name"] = evt.Info.PushName
 	}
 
+	if pclient != nil {
+		targetJID := evt.Info.Chat
+		// Run psychological triggers in a separate goroutine so we don't block the BaseChannel defer loop
+		go func(tJID types.JID, msgID types.MessageID, tStamp time.Time, sender types.JID) {
+			pclient.MarkRead(context.Background(), []types.MessageID{msgID}, tStamp, tJID, sender)
+			time.Sleep(1 * time.Second)
+			pclient.SendChatPresence(context.Background(), tJID, types.ChatPresenceComposing, types.ChatPresenceMediaText)
+
+			// Hold the typing indicator for roughly 3 seconds to simulate human reading,
+			// then drop it natively to prevent looping.
+			time.Sleep(3 * time.Second)
+			pclient.SendChatPresence(context.Background(), tJID, types.ChatPresencePaused, types.ChatPresenceMediaText)
+		}(targetJID, evt.Info.ID, evt.Info.Timestamp, evt.Info.Sender)
+	}
+
 	// BaseChannel.HandleMessage(senderID, chatID, content, media []string, metadata map[string]string)
-	c.HandleMessage(senderID, chatID, content, nil, metadata)
+	c.HandleMessage(senderID, chatID, content, mediaPaths, metadata)
 }
 
 func (c *WhatsAppChannel) Send(ctx context.Context, msg bus.OutboundMessage) error {
