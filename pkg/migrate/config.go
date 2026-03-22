@@ -150,11 +150,13 @@ func ConvertConfig(data map[string]interface{}) (*config.Config, []string, error
 					cfg.Channels.Discord.Token = v
 				}
 			case "whatsapp":
-				cfg.Channels.WhatsApp.Enabled = enabled
-				cfg.Channels.WhatsApp.AllowFrom = allowFrom
-				if v, ok := getString(cMap, "bridge_url"); ok {
-					cfg.Channels.WhatsApp.BridgeURL = v
+				if v, ok := getString(cMap, "bridge_url"); ok && v != "" {
+					cfg.Channels.WhatsApp.Enabled = false
+					warnings = append(warnings, "Legacy WhatsApp bridge detected. Native WhatsApp integration must be manually configured via 'luckyclaw onboard'.")
+				} else {
+					cfg.Channels.WhatsApp.Enabled = enabled
 				}
+				cfg.Channels.WhatsApp.AllowFrom = allowFrom
 			case "feishu":
 				cfg.Channels.Feishu.Enabled = enabled
 				cfg.Channels.Feishu.AllowFrom = allowFrom

@@ -45,6 +45,8 @@ import (
 	"github.com/jamesrossdev/luckyclaw/pkg/tools"
 	"github.com/jamesrossdev/luckyclaw/pkg/voice"
 
+	"github.com/jamesrossdev/luckyclaw/firmware"
+
 	// Native WhatsApp
 	"github.com/jamesrossdev/luckyclaw/pkg/channels/whatsapp"
 )
@@ -508,6 +510,7 @@ func onboard() {
 
 				if err != nil {
 					fmt.Printf("  ⚠ WhatsApp Setup failed: %v\n", err)
+					cfg.Channels.WhatsApp.Enabled = false
 				} else if expectedCode != "" && lid != "" {
 					fmt.Printf("  ✓ Success! Number authorized (Local ID linked).\n")
 					cfg.Channels.WhatsApp.AllowFrom = config.FlexibleStringSlice{lid}
@@ -2093,20 +2096,32 @@ func installCmd() {
 	fmt.Println("  ─────────────────────────")
 
 	// 1. Init script
-	srcInit := "firmware/overlay/etc/init.d/S99luckyclaw"
+	srcInit := "overlay/etc/init.d/S99luckyclaw"
 	dstInit := "/etc/init.d/S99luckyclaw"
 	fmt.Printf("  Installing init script to %s... ", dstInit)
-	if err := copyFile(srcInit, dstInit, 0755); err != nil {
+
+	initData, err := firmware.FS.ReadFile(srcInit)
+	if err == nil {
+		err = os.WriteFile(dstInit, initData, 0755)
+	}
+
+	if err != nil {
 		fmt.Printf("✗\n    Error: %v\n", err)
 	} else {
 		fmt.Println("✓")
 	}
 
 	// 2. SSH Banner
-	srcBanner := "firmware/overlay/etc/profile.d/luckyclaw-banner.sh"
+	srcBanner := "overlay/etc/profile.d/luckyclaw-banner.sh"
 	dstBanner := "/etc/profile.d/luckyclaw-banner.sh"
 	fmt.Printf("  Installing SSH banner to %s... ", dstBanner)
-	if err := copyFile(srcBanner, dstBanner, 0644); err != nil {
+
+	bannerData, err := firmware.FS.ReadFile(srcBanner)
+	if err == nil {
+		err = os.WriteFile(dstBanner, bannerData, 0644)
+	}
+
+	if err != nil {
 		fmt.Printf("✗\n    Error: %v\n", err)
 	} else {
 		fmt.Println("✓")
