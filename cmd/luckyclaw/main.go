@@ -56,7 +56,7 @@ import (
 var embeddedFiles embed.FS
 
 var (
-	version   = "v0.2.2-alpha-1"
+	version   = "v0.2.2-rc10"
 	gitCommit string
 	buildTime string
 	goVersion string
@@ -495,6 +495,17 @@ func onboard() {
 				cfg.Channels.WhatsApp.Enabled = true
 				cfg.Channels.WhatsApp.SessionPath = filepath.Join(cfg.WorkspacePath(), "whatsapp")
 
+				// Check for existing session and offer reset
+				dbPath := filepath.Join(cfg.Channels.WhatsApp.SessionPath, "store.db")
+				if _, err := os.Stat(dbPath); err == nil {
+					fmt.Println("\n  ⚠️  Existing WhatsApp session found.")
+					if promptYN("  Would you like to RESET and pair a NEW number?") {
+						fmt.Print("  Wiping existing session... ")
+						os.RemoveAll(cfg.Channels.WhatsApp.SessionPath)
+						fmt.Println("✓")
+					}
+				}
+
 				waUserID := promptLine("  Your WhatsApp number (optional, press Enter to allow ALL numbers): ")
 				var expectedCode string
 				if waUserID != "" {
@@ -506,7 +517,22 @@ func onboard() {
 					expectedCode = string(code)
 				}
 
-				lid, err := whatsapp.PerformSetup(cfg.Channels.WhatsApp.SessionPath, expectedCode)
+				fmt.Println("\n  How would you like to pair your device?")
+				fmt.Println("  [1] Phone Number Link Code (Recommended for remote servers)")
+				fmt.Println("  [2] Terminal QR Code Scan")
+				linkChoice := promptLine("  Choose [1/2] (default 1): ")
+
+				var pairPhone string
+				if linkChoice != "2" {
+					pairPhone = promptLine("  Enter your phone number with country code (e.g. 12025551234): ")
+					pairPhone = strings.ReplaceAll(pairPhone, " ", "")
+					pairPhone = strings.ReplaceAll(pairPhone, "-", "")
+					pairPhone = strings.ReplaceAll(pairPhone, "+", "")
+					pairPhone = strings.ReplaceAll(pairPhone, "(", "")
+					pairPhone = strings.ReplaceAll(pairPhone, ")", "")
+				}
+
+				lid, err := whatsapp.PerformSetup(cfg.Channels.WhatsApp.SessionPath, expectedCode, pairPhone)
 
 				if err != nil {
 					fmt.Printf("  ⚠ WhatsApp Setup failed: %v\n", err)

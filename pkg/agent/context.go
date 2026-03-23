@@ -210,6 +210,13 @@ func (cb *ContextBuilder) BuildMessages(history []providers.Message, summary str
 	// Add Current Session info if provided
 	if channel != "" && chatID != "" {
 		systemPrompt += fmt.Sprintf("\n\n## Current Session\nChannel: %s\nChat ID: %s", channel, chatID)
+
+		// Forced Skill Injection for WhatsApp
+		if channel == "whatsapp" {
+			if skillContent, ok := cb.skillsLoader.LoadSkill("whatsapp-business"); ok {
+				systemPrompt += "\n\n# WhatsApp Rules & Formatting\n" + skillContent
+			}
+		}
 	}
 
 	// Add User Information from metadata

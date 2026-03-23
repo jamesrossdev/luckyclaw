@@ -52,6 +52,7 @@ type processOptions struct {
 	Channel         string            // Target channel for tool execution
 	ChatID          string            // Target chat ID for tool execution
 	UserMessage     string            // User message content (may include prefix)
+	MediaPaths      []string          // Added for multi-modal attachment ingestion
 	DefaultResponse string            // Response when LLM returns empty
 	EnableSummary   bool              // Whether to trigger summarization
 	SendResponse    bool              // Whether to send response via bus
@@ -329,16 +330,36 @@ func (al *AgentLoop) processMessage(ctx context.Context, msg bus.InboundMessage)
 	}
 
 	// Process as user message
-	return al.runAgentLoop(ctx, processOptions{
+	response, err := al.runAgentLoop(ctx, processOptions{
 		SessionKey:      msg.SessionKey,
 		Channel:         msg.Channel,
 		ChatID:          msg.ChatID,
 		UserMessage:     msg.Content,
+		MediaPaths:      msg.Media,
 		Metadata:        msg.Metadata,
 		DefaultResponse: "I've completed processing but have no response to give.",
 		EnableSummary:   true,
 		SendResponse:    false,
 	})
+
+	// --- Centralized Media Cleanup ---
+	// We delete temporary media files ONLY after the LLM iteration loop finishes.
+	// This prevents the race condition where channels delete files before the provider can read them.
+	if len(msg.Media) > 0 {
+		for _, path := range msg.Media {
+			// Skip cleanup for URLs
+			if strings.HasPrefix(path, "http://") || strings.HasPrefix(path, "https://") {
+				continue
+			}
+			if err := os.Remove(path); err != nil {
+				logger.DebugCF("agent", "Failed to cleanup temporary media file", map[string]any{"path": path, "error": err.Error()})
+			} else {
+				logger.DebugCF("agent", "Cleaned up temporary media file", map[string]any{"path": path})
+			}
+		}
+	}
+
+	return response, err
 }
 
 func (al *AgentLoop) processSystemMessage(ctx context.Context, msg bus.InboundMessage) (string, error) {
@@ -430,6 +451,16 @@ func (al *AgentLoop) runAgentLoop(ctx context.Context, opts processOptions) (str
 		opts.ChatID,
 		opts.Metadata,
 	)
+
+	// Inject MediaPaths transiently so it never persists to lightweight SQLite History
+	if len(opts.MediaPaths) > 0 {
+		for i := len(messages) - 1; i >= 0; i-- {
+			if messages[i].Role == "user" {
+				messages[i].MediaPaths = opts.MediaPaths
+				break
+			}
+		}
+	}
 
 	// 3. Save user message to session
 	if !opts.NoHistory {
@@ -590,6 +621,16 @@ func (al *AgentLoop) runLLMIteration(ctx context.Context, messages []providers.M
 					opts.ChatID,
 					nil, // Metadata already processed in system prompt of the original call
 				)
+
+				// Inject MediaPaths again transiently
+				if len(opts.MediaPaths) > 0 {
+					for i := len(messages) - 1; i >= 0; i-- {
+						if messages[i].Role == "user" {
+							messages[i].MediaPaths = opts.MediaPaths
+							break
+						}
+					}
+				}
 
 				continue
 			}

@@ -20,7 +20,7 @@ import (
 
 // PerformSetup initializes whatsmeow temporarily, handles QR Code pairing (if not already paired),
 // and waits for the user to send the expectedCode in order to securely link their LID.
-func PerformSetup(sessionPath string, expectedCode string) (string, error) {
+func PerformSetup(sessionPath string, expectedCode string, pairPhone string) (string, error) {
 	if err := os.MkdirAll(sessionPath, 0755); err != nil {
 		return "", fmt.Errorf("failed to create session directory: %w", err)
 	}
@@ -50,9 +50,16 @@ func PerformSetup(sessionPath string, expectedCode string) (string, error) {
 	var foundLID string
 	var mu sync.Mutex
 	done := make(chan struct{})
+	waitForLogin := make(chan struct{})
 
 	client.AddEventHandler(func(evt interface{}) {
 		switch v := evt.(type) {
+		case *events.PairSuccess:
+			select {
+			case <-waitForLogin:
+			default:
+				close(waitForLogin)
+			}
 		case *events.Message:
 			if v.Info.IsFromMe {
 				return
@@ -77,18 +84,45 @@ func PerformSetup(sessionPath string, expectedCode string) (string, error) {
 	fmt.Println("  Initializing pairing session... please wait")
 
 	if client.Store.ID == nil {
-		qrChan, _ := client.GetQRChannel(context.Background())
-		err = client.Connect()
-		if err != nil {
-			return "", err
-		}
+		if pairPhone != "" {
+			err = client.Connect()
+			if err != nil {
+				return "", err
+			}
+			code, err := client.PairPhone(context.Background(), pairPhone, true, whatsmeow.PairClientChrome, "Chrome (Linux)")
+			if err != nil {
+				return "", fmt.Errorf("failed to retrieve pairing code: %w", err)
+			}
+			fmt.Printf("\n  ======================================================\n")
+			fmt.Printf("  WhatsApp Pairing Code: %s\n", code)
+			fmt.Printf("  ======================================================\n")
+			fmt.Println("  To link your account:")
+			fmt.Println("  1. Open WhatsApp on your phone")
+			fmt.Println("  2. Navigate to Linked Devices -> Link a Device")
+			fmt.Println("  3. Tap 'Link with phone number instead' at the bottom")
+			fmt.Println("  4. Enter the code exactly as displayed above")
+			fmt.Println("\n  Waiting for pairing completion... (Press Ctrl+C to cancel setup)")
 
-		for evt := range qrChan {
-			if evt.Event == "code" {
-				qrterminal.GenerateHalfBlock(evt.Code, qrterminal.L, os.Stdout)
-				fmt.Println("\n  Scan this QR code with WhatsApp (Linked Devices)")
-			} else {
-				fmt.Println("  QR Status:", evt.Event)
+			select {
+			case <-waitForLogin:
+				fmt.Println("  ✓ Device successfully paired!")
+			case <-time.After(5 * time.Minute):
+				return "", fmt.Errorf("phone pairing timed out")
+			}
+		} else {
+			qrChan, _ := client.GetQRChannel(context.Background())
+			err = client.Connect()
+			if err != nil {
+				return "", err
+			}
+
+			for evt := range qrChan {
+				if evt.Event == "code" {
+					qrterminal.GenerateHalfBlock(evt.Code, qrterminal.L, os.Stdout)
+					fmt.Println("\n  Scan this QR code with WhatsApp (Linked Devices)")
+				} else {
+					fmt.Println("  QR Status:", evt.Event)
+				}
 			}
 		}
 	} else {

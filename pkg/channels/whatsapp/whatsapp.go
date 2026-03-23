@@ -1,9 +1,12 @@
 package whatsapp
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"fmt"
+	"image"
+	"image/jpeg"
 	"os"
 	"path/filepath"
 	"strings"
@@ -21,6 +24,8 @@ import (
 	"google.golang.org/protobuf/proto"
 	_ "modernc.org/sqlite"
 
+	"golang.org/x/image/draw"
+
 	"github.com/jamesrossdev/luckyclaw/pkg/bus"
 	"github.com/jamesrossdev/luckyclaw/pkg/channels"
 	"github.com/jamesrossdev/luckyclaw/pkg/config"
@@ -36,6 +41,38 @@ const (
 	reconnectMultiplier = 2.0
 )
 
+// compressImage strictly downsizes uploaded multi-modal image buffers
+func compressImage(data []byte) ([]byte, error) {
+	img, _, err := image.Decode(bytes.NewReader(data))
+	if err != nil {
+		return nil, err
+	}
+	bounds := img.Bounds()
+	w, h := bounds.Dx(), bounds.Dy()
+
+	if w <= 512 && h <= 512 {
+		var buf bytes.Buffer
+		err = jpeg.Encode(&buf, img, &jpeg.Options{Quality: 60})
+		return buf.Bytes(), err
+	}
+
+	var newW, newH int
+	if w > h {
+		newW = 512
+		newH = h * 512 / w
+	} else {
+		newH = 512
+		newW = w * 512 / h
+	}
+
+	dst := image.NewRGBA(image.Rect(0, 0, newW, newH))
+	draw.ApproxBiLinear.Scale(dst, dst.Bounds(), img, bounds, draw.Over, nil)
+
+	var buf bytes.Buffer
+	err = jpeg.Encode(&buf, dst, &jpeg.Options{Quality: 60})
+	return buf.Bytes(), err
+}
+
 // WhatsAppChannel implements the WhatsApp channel using whatsmeow (in-process, no external bridge).
 type WhatsAppChannel struct {
 	*channels.BaseChannel
@@ -43,6 +80,7 @@ type WhatsAppChannel struct {
 	storePath    string
 	client       *whatsmeow.Client
 	container    *sqlstore.Container
+	db           *sql.DB
 	mu           sync.Mutex
 	runCtx       context.Context
 	runCancel    context.CancelFunc
@@ -101,6 +139,10 @@ func (c *WhatsAppChannel) Start(ctx context.Context) error {
 
 	waLogger := waLog.Stdout("WhatsApp", "WARN", true)
 	container := sqlstore.NewWithDB(db, sqliteDriver, waLogger)
+	c.mu.Lock()
+	c.container = container
+	c.db = db
+	c.mu.Unlock()
 	if err = container.Upgrade(ctx); err != nil {
 		_ = db.Close()
 		return fmt.Errorf("open whatsapp store: %w", err)
@@ -203,10 +245,15 @@ func (c *WhatsAppChannel) Stop(ctx context.Context) error {
 	c.mu.Lock()
 	client := c.client
 	container := c.container
+	db := c.db
 	c.mu.Unlock()
 
 	if client != nil {
 		client.Disconnect()
+	}
+
+	if db != nil {
+		db.Close()
 	}
 
 	done := make(chan struct{})
@@ -354,17 +401,13 @@ func (c *WhatsAppChannel) handleIncoming(evt *events.Message) {
 	var mediaPaths []string
 	var localFiles []string
 
-	defer func() {
-		for _, file := range localFiles {
-			if err := os.Remove(file); err != nil {
-				logger.DebugCF("whatsapp", "Failed to cleanup temp file", map[string]any{"file": file, "error": err.Error()})
-			}
-		}
-	}()
+
 
 	var data []byte
 	var err error
 	var fileLength uint64
+	var mimetype string
+	var filename string
 
 	c.mu.Lock()
 	pclient := c.client
@@ -373,6 +416,8 @@ func (c *WhatsAppChannel) handleIncoming(evt *events.Message) {
 	if pclient != nil {
 		if evt.Message.DocumentMessage != nil {
 			fileLength = evt.Message.DocumentMessage.GetFileLength()
+			mimetype = evt.Message.DocumentMessage.GetMimetype()
+			filename = evt.Message.DocumentMessage.GetFileName()
 			if content == "" {
 				content = evt.Message.DocumentMessage.GetCaption()
 			}
@@ -381,6 +426,7 @@ func (c *WhatsAppChannel) handleIncoming(evt *events.Message) {
 			}
 		} else if evt.Message.ImageMessage != nil {
 			fileLength = evt.Message.ImageMessage.GetFileLength()
+			mimetype = evt.Message.ImageMessage.GetMimetype()
 			if content == "" {
 				content = evt.Message.ImageMessage.GetCaption()
 			}
@@ -389,11 +435,13 @@ func (c *WhatsAppChannel) handleIncoming(evt *events.Message) {
 			}
 		} else if evt.Message.AudioMessage != nil {
 			fileLength = evt.Message.AudioMessage.GetFileLength()
+			mimetype = evt.Message.AudioMessage.GetMimetype()
 			if fileLength <= 5_000_000 {
 				data, err = pclient.Download(context.Background(), evt.Message.AudioMessage)
 			}
 		} else if evt.Message.VideoMessage != nil {
 			fileLength = evt.Message.VideoMessage.GetFileLength()
+			mimetype = evt.Message.VideoMessage.GetMimetype()
 			if content == "" {
 				content = evt.Message.VideoMessage.GetCaption()
 			}
@@ -408,14 +456,41 @@ func (c *WhatsAppChannel) handleIncoming(evt *events.Message) {
 				return
 			}
 		} else if len(data) > 0 {
-			if tmpFile, err := os.CreateTemp("", "wa-media-*"); err == nil {
-				tmpFile.Write(data)
-				tmpFile.Close()
-				localFiles = append(localFiles, tmpFile.Name())
-				mediaPaths = append(mediaPaths, tmpFile.Name())
-				content = fmt.Sprintf("[media loaded]\n%s", content)
+			lowerFilename := strings.ToLower(filename)
+			isText := strings.HasPrefix(mimetype, "text/") ||
+				strings.HasPrefix(mimetype, "application/json") ||
+				strings.HasSuffix(lowerFilename, ".txt") ||
+				strings.HasSuffix(lowerFilename, ".md") ||
+				strings.HasSuffix(lowerFilename, ".csv") ||
+				strings.HasSuffix(lowerFilename, ".json") ||
+				strings.HasSuffix(lowerFilename, ".log") ||
+				strings.HasSuffix(lowerFilename, ".yaml") ||
+				strings.HasSuffix(lowerFilename, ".yml")
+
+			if isText {
+				logger.InfoCF("whatsapp", "Ingested plain-text file natively", map[string]any{"filename": filename, "size": len(data)})
+				if filename == "" {
+					filename = "attached_file.txt"
+				}
+				content = fmt.Sprintf("[Attached File: %s]\n\n%s\n\n%s", filename, string(data), content)
 			} else {
-				logger.WarnCF("whatsapp", "Failed to save media", map[string]any{"error": err.Error()})
+				if strings.HasPrefix(mimetype, "image/") || evt.Message.ImageMessage != nil {
+					if compressedData, errCompress := compressImage(data); errCompress == nil {
+						data = compressedData
+					} else {
+						logger.WarnCF("whatsapp", "Image compression failed", map[string]any{"error": errCompress.Error()})
+					}
+				}
+
+				if tmpFile, err := os.CreateTemp("", "wa-media-*"); err == nil {
+					tmpFile.Write(data)
+					tmpFile.Close()
+					localFiles = append(localFiles, tmpFile.Name())
+					mediaPaths = append(mediaPaths, tmpFile.Name())
+					content = fmt.Sprintf("[media loaded]\n%s", content)
+				} else {
+					logger.WarnCF("whatsapp", "Failed to save media", map[string]any{"error": err.Error()})
+				}
 			}
 		} else if err != nil {
 			logger.WarnCF("whatsapp", "Failed to download media", map[string]any{"error": err.Error()})
@@ -445,8 +520,20 @@ func (c *WhatsAppChannel) handleIncoming(evt *events.Message) {
 	var quotedText string
 	var quotedSender string
 
-	if evt.Message.ExtendedTextMessage != nil && evt.Message.ExtendedTextMessage.ContextInfo != nil {
-		ctxInfo := evt.Message.ExtendedTextMessage.ContextInfo
+	var ctxInfo *waE2E.ContextInfo
+	if evt.Message.ExtendedTextMessage != nil {
+		ctxInfo = evt.Message.ExtendedTextMessage.ContextInfo
+	} else if evt.Message.ImageMessage != nil {
+		ctxInfo = evt.Message.ImageMessage.ContextInfo
+	} else if evt.Message.VideoMessage != nil {
+		ctxInfo = evt.Message.VideoMessage.ContextInfo
+	} else if evt.Message.DocumentMessage != nil {
+		ctxInfo = evt.Message.DocumentMessage.ContextInfo
+	} else if evt.Message.AudioMessage != nil {
+		ctxInfo = evt.Message.AudioMessage.ContextInfo
+	}
+
+	if ctxInfo != nil {
 
 		for _, mentioned := range ctxInfo.GetMentionedJID() {
 			if (botJID != "" && strings.HasPrefix(mentioned, botJID+"@")) ||

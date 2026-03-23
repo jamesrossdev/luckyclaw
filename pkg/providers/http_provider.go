@@ -9,11 +9,13 @@ package providers
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 
@@ -64,9 +66,70 @@ func (p *HTTPProvider) Chat(ctx context.Context, messages []Message, tools []Too
 		}
 	}
 
+	var formattedMessages []interface{}
+	for _, msg := range messages {
+		formattedMsg := map[string]interface{}{
+			"role": msg.Role,
+		}
+
+		if len(msg.MediaPaths) > 0 {
+			var contentArray []interface{}
+			if msg.Content != "" {
+				contentArray = append(contentArray, map[string]interface{}{
+					"type": "text",
+					"text": msg.Content,
+				})
+			}
+
+			for _, imgPath := range msg.MediaPaths {
+				// Handle both local files and direct URLs
+				if strings.HasPrefix(imgPath, "http://") || strings.HasPrefix(imgPath, "https://") {
+					contentArray = append(contentArray, map[string]interface{}{
+						"type": "image_url",
+						"image_url": map[string]string{
+							"url": imgPath,
+						},
+					})
+					continue
+				}
+
+				if imgData, err := os.ReadFile(imgPath); err == nil {
+					base64Str := base64.StdEncoding.EncodeToString(imgData)
+					mimeType := "image/jpeg"
+					imgPathLower := strings.ToLower(imgPath)
+					if strings.HasSuffix(imgPathLower, ".png") {
+						mimeType = "image/png"
+					} else if strings.HasSuffix(imgPathLower, ".gif") {
+						mimeType = "image/gif"
+					} else if strings.HasSuffix(imgPathLower, ".webp") {
+						mimeType = "image/webp"
+					}
+					contentArray = append(contentArray, map[string]interface{}{
+						"type": "image_url",
+						"image_url": map[string]string{
+							"url": fmt.Sprintf("data:%s;base64,%s", mimeType, base64Str),
+						},
+					})
+				}
+			}
+			formattedMsg["content"] = contentArray
+		} else {
+			formattedMsg["content"] = msg.Content
+		}
+
+		if len(msg.ToolCalls) > 0 {
+			formattedMsg["tool_calls"] = msg.ToolCalls
+		}
+		if msg.ToolCallID != "" {
+			formattedMsg["tool_call_id"] = msg.ToolCallID
+		}
+
+		formattedMessages = append(formattedMessages, formattedMsg)
+	}
+
 	requestBody := map[string]interface{}{
 		"model":    model,
-		"messages": messages,
+		"messages": formattedMessages,
 	}
 
 	if len(tools) > 0 {
