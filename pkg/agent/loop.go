@@ -44,6 +44,7 @@ type AgentLoop struct {
 	running        atomic.Bool
 	summarizing    sync.Map // Tracks which sessions are currently being summarized
 	channelManager *channels.Manager
+	config         *config.Config
 }
 
 // processOptions configures how a message is processed
@@ -191,6 +192,7 @@ func NewAgentLoop(cfg *config.Config, msgBus *bus.MessageBus, provider providers
 		contextBuilder: contextBuilder,
 		tools:          toolsRegistry,
 		summarizing:    sync.Map{},
+		config:         cfg,
 	}
 }
 
@@ -544,6 +546,11 @@ func (al *AgentLoop) runLLMIteration(ctx context.Context, messages []providers.M
 			providerToolDefs = filterDiscordTools(providerToolDefs)
 		}
 
+		// WhatsApp Business Mode Tool Restrictions
+		if opts.Channel == "whatsapp" && al.config.Channels.WhatsApp.BusinessMode {
+			providerToolDefs = filterWhatsAppBusinessTools(providerToolDefs)
+		}
+
 		// Log LLM request details
 		logger.DebugCF("agent", "LLM request",
 			map[string]interface{}{
@@ -765,6 +772,28 @@ func filterHeartbeatTools(tools []providers.ToolDefinition) []providers.ToolDefi
 	filtered := make([]providers.ToolDefinition, 0, len(tools))
 	for _, t := range tools {
 		if t.Function.Name != "message" && t.Function.Name != "send_file" {
+			filtered = append(filtered, t)
+		}
+	}
+	return filtered
+}
+
+// filterWhatsAppBusinessTools whitelists only safe, read-only tools when
+// WhatsApp Business Mode is enabled. Mirrors the filterDiscordTools approach —
+// anything not explicitly allowed is blocked by default.
+func filterWhatsAppBusinessTools(tools []providers.ToolDefinition) []providers.ToolDefinition {
+	allowed := map[string]bool{
+		"message":               true,
+		"web_search_duckduckgo": true,
+		"web_search_brave":      true,
+		"fetch_url":             true,
+		"read_file":             true,
+		"list_dir":              true,
+	}
+
+	filtered := make([]providers.ToolDefinition, 0, len(tools))
+	for _, t := range tools {
+		if allowed[t.Function.Name] {
 			filtered = append(filtered, t)
 		}
 	}

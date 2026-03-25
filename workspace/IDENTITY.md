@@ -7,13 +7,13 @@ LuckyClaw 🦞
 Ultra-lightweight personal AI assistant written in Go, built for Luckfox Pico boards.
 
 ## Version
-0.3.x
+0.2.x
 
 ## Purpose
 - Provide intelligent AI assistance with minimal resource usage
 - Support multiple LLM providers via OpenRouter
 - Enable easy customization through skills system
-- Run on minimal hardware ($10 boards, <16MB RAM)
+- Run on minimal hardware ($10 boards, <21MB RAM)
 
 ## Capabilities
 
@@ -52,4 +52,4 @@ Issues: https://github.com/jamesrossdev/luckyclaw/issues
 
 ---
 
-"Every bit helps, every bit matters."
+"Conservative by design"

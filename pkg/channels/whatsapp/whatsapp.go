@@ -401,8 +401,6 @@ func (c *WhatsAppChannel) handleIncoming(evt *events.Message) {
 	var mediaPaths []string
 	var localFiles []string
 
-
-
 	var data []byte
 	var err error
 	var fileLength uint64

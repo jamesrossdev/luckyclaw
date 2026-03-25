@@ -211,10 +211,10 @@ func (cb *ContextBuilder) BuildMessages(history []providers.Message, summary str
 	if channel != "" && chatID != "" {
 		systemPrompt += fmt.Sprintf("\n\n## Current Session\nChannel: %s\nChat ID: %s", channel, chatID)
 
-		// Forced Skill Injection for WhatsApp
+		// Inject Native WhatsApp Formatting Skill
 		if channel == "whatsapp" {
-			if skillContent, ok := cb.skillsLoader.LoadSkill("whatsapp-business"); ok {
-				systemPrompt += "\n\n# WhatsApp Rules & Formatting\n" + skillContent
+			if formatContent, ok := cb.skillsLoader.LoadSkill("whatsapp"); ok {
+				systemPrompt += "\n\n# WhatsApp Formatting Rules\n" + formatContent
 			}
 		}
 	}

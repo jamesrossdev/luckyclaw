@@ -340,6 +340,18 @@ LuckyClaw v0.2.0+ embeds its own timezone database and sets the timezone during 
 
 ---
 
+## ⚡ Quick Navigation (Terminal Shortcuts)
+
+| Destination | Path / Command |
+|-------------|----------------|
+| **Config File** | `nano ~/.luckyclaw/config.json` |
+| **Workspace** | `~/.luckyclaw/workspace/` |
+| **Skills Dir** | `~/.luckyclaw/workspace/skills/` |
+| **Logs** | `tail -f /var/log/luckyclaw.log` |
+| **Gateway Status** | `luckyclaw status` |
+
+---
+
 ## 💬 Community
 
 Join our Discord for help, feedback, and discussion:

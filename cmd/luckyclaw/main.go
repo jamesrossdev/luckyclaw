@@ -56,7 +56,7 @@ import (
 var embeddedFiles embed.FS
 
 var (
-	version   = "v0.2.2-rc10"
+	version   = "v0.2.2-rc14"
 	gitCommit string
 	buildTime string
 	goVersion string
@@ -324,6 +324,7 @@ func detectBoardModel() string {
 }
 
 func onboard() {
+	stopCmd()
 	configPath := getConfigPath()
 
 	fmt.Println()
@@ -503,6 +504,9 @@ func onboard() {
 						fmt.Print("  Wiping existing session... ")
 						os.RemoveAll(cfg.Channels.WhatsApp.SessionPath)
 						fmt.Println("✓")
+					} else {
+						fmt.Println("  Keeping existing session. Skipping pairing.")
+						continue
 					}
 				}
 
@@ -745,7 +749,36 @@ func copyEmbeddedToTarget(targetDir string) error {
 		return nil
 	})
 
-	return err
+	if err != nil {
+		return err
+	}
+
+	// Remove orphaned skill directories that are no longer in the embedded workspace.
+	// This cleans up skills deleted between binary updates (e.g. whatsapp-business).
+	embeddedSkills := map[string]bool{}
+	_ = fs.WalkDir(embeddedFiles, "workspace/skills", func(path string, d fs.DirEntry, _ error) error {
+		if !d.IsDir() || path == "workspace/skills" {
+			return nil
+		}
+		rel, _ := filepath.Rel("workspace/skills", path)
+		// Only track top-level skill dirs
+		if !strings.Contains(rel, string(filepath.Separator)) {
+			embeddedSkills[rel] = true
+		}
+		return nil
+	})
+	diskSkillsDir := filepath.Join(targetDir, "skills")
+	if entries, readErr := os.ReadDir(diskSkillsDir); readErr == nil {
+		for _, entry := range entries {
+			if entry.IsDir() && !embeddedSkills[entry.Name()] {
+				orphanPath := filepath.Join(diskSkillsDir, entry.Name())
+				_ = os.RemoveAll(orphanPath)
+				fmt.Printf("  Removed orphaned skill: %s\n", entry.Name())
+			}
+		}
+	}
+
+	return nil
 }
 
 func configResetCmd() {
