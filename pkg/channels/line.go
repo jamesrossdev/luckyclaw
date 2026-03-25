@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"strings"
 	"sync"
 	"time"
@@ -307,18 +306,9 @@ func (c *LINEChannel) processEvent(event lineEvent) {
 
 	var content string
 	var mediaPaths []string
+	// Temp file cleanup is handled centrally by loop.go after LLM processing.
+	// Do NOT defer os.Remove here — it races with the provider reading the file.
 	localFiles := []string{}
-
-	defer func() {
-		for _, file := range localFiles {
-			if err := os.Remove(file); err != nil {
-				logger.DebugCF("line", "Failed to cleanup temp file", map[string]interface{}{
-					"file":  file,
-					"error": err.Error(),
-				})
-			}
-		}
-	}()
 
 	switch msg.Type {
 	case "text":

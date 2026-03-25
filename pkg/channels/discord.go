@@ -3,7 +3,6 @@ package channels
 import (
 	"context"
 	"fmt"
-	"os"
 	"strings"
 	"time"
 
@@ -397,17 +396,8 @@ func (c *DiscordChannel) handleMessage(s *discordgo.Session, m *discordgo.Messag
 	mediaPaths := make([]string, 0, len(m.Attachments))
 	localFiles := make([]string, 0, len(m.Attachments))
 
-	// Ensure temp files are cleaned up on function return.
-	defer func() {
-		for _, file := range localFiles {
-			if err := os.Remove(file); err != nil {
-				logger.DebugCF("discord", "Failed to cleanup temp file", map[string]any{
-					"file":  file,
-					"error": err.Error(),
-				})
-			}
-		}
-	}()
+	// Temp file cleanup is handled centrally by loop.go after LLM processing.
+	// Do NOT defer os.Remove here — it races with the provider reading the file.
 
 	for _, attachment := range m.Attachments {
 		isAudio := utils.IsAudioFile(attachment.Filename, attachment.ContentType)

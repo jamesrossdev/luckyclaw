@@ -495,6 +495,14 @@ func (c *WhatsAppChannel) handleIncoming(evt *events.Message) {
 		}
 	}
 
+	// Ensure temp media files are cleaned up even on early-exit paths (group filter, empty content).
+	// For messages that reach the bus, loop.go's centralized cleanup handles deletion after LLM processing.
+	defer func() {
+		for _, f := range localFiles {
+			os.Remove(f)
+		}
+	}()
+
 	// --- v0.2.2-rc4: Group Spam Filtering & Contextual Quotes ---
 	var isGroup = strings.HasSuffix(chatID, "@g.us")
 	var isMentioned = false

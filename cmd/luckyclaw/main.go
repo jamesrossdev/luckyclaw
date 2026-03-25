@@ -56,7 +56,7 @@ import (
 var embeddedFiles embed.FS
 
 var (
-	version   = "v0.2.2-rc14"
+	version   = "v0.2.2-rc15"
 	gitCommit string
 	buildTime string
 	goVersion string

@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -93,6 +94,16 @@ func (p *HTTPProvider) Chat(ctx context.Context, messages []Message, tools []Too
 					continue
 				}
 
+				// Cap local media at 2MB to avoid triple-copy OOM on the 24MiB heap:
+				// os.ReadFile → base64 string (×1.37) → JSON marshal (×1) ≈ >11MB for a 5MB file.
+				const maxMediaBytes = 2 * 1024 * 1024
+				if fi, statErr := os.Stat(imgPath); statErr != nil || fi.Size() > maxMediaBytes {
+					contentArray = append(contentArray, map[string]interface{}{
+						"type": "text",
+						"text": fmt.Sprintf("[media too large to embed: %s]", filepath.Base(imgPath)),
+					})
+					continue
+				}
 				if imgData, err := os.ReadFile(imgPath); err == nil {
 					base64Str := base64.StdEncoding.EncodeToString(imgData)
 					mimeType := "image/jpeg"

@@ -3,7 +3,6 @@ package channels
 import (
 	"context"
 	"fmt"
-	"os"
 	"strings"
 	"sync"
 	"time"
@@ -230,19 +229,9 @@ func (c *SlackChannel) handleMessageEvent(ev *slackevents.MessageEvent) {
 	content = c.stripBotMention(content)
 
 	var mediaPaths []string
-	localFiles := []string{} // 跟踪需要清理的本地文件
-
-	// 确保临时文件在函数返回时被清理
-	defer func() {
-		for _, file := range localFiles {
-			if err := os.Remove(file); err != nil {
-				logger.DebugCF("slack", "Failed to cleanup temp file", map[string]interface{}{
-					"file":  file,
-					"error": err.Error(),
-				})
-			}
-		}
-	}()
+	// Temp file cleanup is handled centrally by loop.go after LLM processing.
+	// Do NOT defer os.Remove here — it races with the provider reading the file.
+	localFiles := []string{}
 
 	if ev.Message != nil && len(ev.Message.Files) > 0 {
 		for _, file := range ev.Message.Files {
