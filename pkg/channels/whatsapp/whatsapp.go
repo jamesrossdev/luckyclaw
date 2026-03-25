@@ -371,6 +371,16 @@ func (c *WhatsAppChannel) handleIncoming(evt *events.Message) {
 		return
 	}
 
+	// Drop all messages originating from the self-chat ("Message Yourself").
+	// This prevents the bot from processing and responding to its own heartbeat alerts
+	// which would cause an infinite reply loop.
+	if evt.Info.IsFromMe && evt.Info.Chat.User == evt.Info.Sender.User {
+		logger.DebugCF("whatsapp", "Ignoring self-chat message (loop prevention)", map[string]any{
+			"chat": chatID,
+		})
+		return
+	}
+
 	// v0.2.2-rc6 Rate Limiter (Disabled by default)
 	const maxMessagesPerMinute = 5
 	const rateLimitEnabled = false
@@ -667,4 +677,15 @@ func (c *WhatsAppChannel) Send(ctx context.Context, msg bus.OutboundMessage) err
 
 func (c *WhatsAppChannel) SetRunning(running bool) {
 	c.BaseChannel.SetRunning(running)
+}
+
+// GetSelfJID returns the WhatsApp JID string of the bot's own account.
+// Returns an empty string if the client is not yet paired.
+func (c *WhatsAppChannel) GetSelfJID() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.client == nil || c.client.Store == nil || c.client.Store.ID == nil {
+		return ""
+	}
+	return c.client.Store.ID.User + "@" + c.client.Store.ID.Server
 }

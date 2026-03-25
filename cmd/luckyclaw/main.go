@@ -56,7 +56,7 @@ import (
 var embeddedFiles embed.FS
 
 var (
-	version   = "v0.2.2-rc15"
+	version   = "v0.2.2-rc16"
 	gitCommit string
 	buildTime string
 	goVersion string
@@ -1003,7 +1003,7 @@ func interactiveMode(agentLoop *agent.AgentLoop, sessionKey string) {
 func simpleInteractiveMode(agentLoop *agent.AgentLoop, sessionKey string) {
 	reader := bufio.NewReader(os.Stdin)
 	for {
-		fmt.Print(fmt.Sprintf("%s You: ", logo))
+		fmt.Printf("%s You: ", logo)
 		line, err := reader.ReadString('\n')
 		if err != nil {
 			if err == io.EOF {
@@ -1120,12 +1120,14 @@ func gatewayCmd() {
 	agentLoop.SetChannelManager(channelManager)
 
 	// Register native WhatsApp if enabled
+	var waChannel *whatsapp.WhatsAppChannel
 	if cfg.Channels.WhatsApp.Enabled {
 		wa, err := whatsapp.NewWhatsAppChannel(cfg.Channels.WhatsApp, msgBus, cfg.Channels.WhatsApp.SessionPath)
 		if err != nil {
 			logger.ErrorCF("whatsapp", "Failed to initialize native WhatsApp channel", map[string]interface{}{"error": err.Error()})
 		} else {
 			channelManager.RegisterChannel("whatsapp", wa)
+			waChannel = wa
 			logger.InfoC("whatsapp", "Native WhatsApp channel registered")
 		}
 	}
@@ -1212,6 +1214,15 @@ func gatewayCmd() {
 
 	if err := channelManager.StartAll(ctx); err != nil {
 		fmt.Printf("Error starting channels: %v\n", err)
+	}
+
+	// Wire WhatsApp self-chat JID into the heartbeat service for alert delivery.
+	// After StartAll, the WhatsApp client is connected and Store.ID is populated.
+	if waChannel != nil {
+		if selfJID := waChannel.GetSelfJID(); selfJID != "" {
+			heartbeatService.SetSelfChatJID(selfJID)
+			logger.InfoCF("whatsapp", "Heartbeat alerts will be delivered to self-chat", map[string]interface{}{"jid": selfJID})
+		}
 	}
 
 	healthServer := health.NewServer(cfg.Gateway.Host, cfg.Gateway.Port)

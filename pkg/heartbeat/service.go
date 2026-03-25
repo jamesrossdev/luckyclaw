@@ -33,14 +33,15 @@ type HeartbeatHandler func(prompt, channel, chatID string) *tools.ToolResult
 
 // HeartbeatService manages periodic heartbeat checks
 type HeartbeatService struct {
-	workspace string
-	bus       *bus.MessageBus
-	state     *state.Manager
-	handler   HeartbeatHandler
-	interval  time.Duration
-	enabled   bool
-	mu        sync.RWMutex
-	stopChan  chan struct{}
+	workspace   string
+	bus         *bus.MessageBus
+	state       *state.Manager
+	handler     HeartbeatHandler
+	interval    time.Duration
+	enabled     bool
+	mu          sync.RWMutex
+	stopChan    chan struct{}
+	selfChatJID string // WhatsApp self-chat JID for alert delivery
 }
 
 // NewHeartbeatService creates a new heartbeat service
@@ -67,6 +68,15 @@ func (hs *HeartbeatService) SetBus(msgBus *bus.MessageBus) {
 	hs.mu.Lock()
 	defer hs.mu.Unlock()
 	hs.bus = msgBus
+}
+
+// SetSelfChatJID configures the WhatsApp self-chat JID to deliver actionable alerts to.
+// When set, non-silent heartbeat alerts are sent here instead of the last user channel.
+func (hs *HeartbeatService) SetSelfChatJID(jid string) {
+	hs.mu.Lock()
+	defer hs.mu.Unlock()
+	hs.selfChatJID = jid
+	logger.InfoCF("heartbeat", "Self-chat alert delivery configured", map[string]interface{}{"jid": jid})
 }
 
 // SetHandler sets the heartbeat handler.
@@ -231,17 +241,35 @@ func (hs *HeartbeatService) executeHeartbeat() {
 		return
 	}
 
-	// LEAK PATH: if we reach here, the message WILL be sent to the user
-	logger.WarnCF("heartbeat", "[AUDIT] LEAK: Heartbeat message reaching sendResponse!", map[string]interface{}{
-		"content": truncateForLog(content, 200),
-		"Silent":  result.Silent,
-		"ForUser": truncateForLog(result.ForUser, 100),
-		"ForLLM":  truncateForLog(result.ForLLM, 100),
-	})
-
-	// Send result to user
+	// Route actionable alert to self-chat (WhatsApp) or log-only fallback
 	if content != "" {
-		hs.sendResponse(content)
+		hs.mu.RLock()
+		selfJID := hs.selfChatJID
+		hs.mu.RUnlock()
+
+		if selfJID != "" {
+			// Deliver to the bot's own WhatsApp "Message Yourself" chat
+			logger.InfoCF("heartbeat", "[AUDIT] Delivering alert to WhatsApp self-chat", map[string]interface{}{
+				"jid":     selfJID,
+				"content": truncateForLog(content, 100),
+			})
+			hs.mu.RLock()
+			msgBus := hs.bus
+			hs.mu.RUnlock()
+			if msgBus != nil {
+				msgBus.PublishOutbound(bus.OutboundMessage{
+					Channel: "whatsapp",
+					ChatID:  selfJID,
+					Content: "⚠️ *Heartbeat Alert*\n\n" + content,
+				})
+			}
+		} else {
+			// No self-chat configured — log the alert only
+			logger.WarnCF("heartbeat", "[AUDIT] Alert suppressed (no self-chat JID set)", map[string]interface{}{
+				"content": truncateForLog(content, 200),
+			})
+			hs.logInfo("Heartbeat alert (no self-chat configured): %s", content)
+		}
 	}
 
 	hs.logInfo("Heartbeat completed: %s", content)
