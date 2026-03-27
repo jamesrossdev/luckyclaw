@@ -124,7 +124,7 @@ func (c *WhatsAppChannel) Start(ctx context.Context) error {
 	}
 
 	dbPath := filepath.Join(c.storePath, whatsappDBName)
-	connStr := "file:" + dbPath + "?_foreign_keys=on"
+	connStr := fmt.Sprintf("file:%s?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)", dbPath)
 
 	db, err := sql.Open(sqliteDriver, connStr)
 	if err != nil {
@@ -132,10 +132,6 @@ func (c *WhatsAppChannel) Start(ctx context.Context) error {
 	}
 	db.SetMaxOpenConns(1)
 	db.SetMaxIdleConns(1)
-	if _, err = db.ExecContext(ctx, "PRAGMA foreign_keys = ON"); err != nil {
-		_ = db.Close()
-		return fmt.Errorf("enable foreign keys: %w", err)
-	}
 
 	waLogger := waLog.Stdout("WhatsApp", "WARN", true)
 	container := sqlstore.NewWithDB(db, sqliteDriver, waLogger)
@@ -205,9 +201,8 @@ func (c *WhatsAppChannel) Start(ctx context.Context) error {
 						return
 					}
 					if evt.Event == "code" {
-						fmt.Println("\n  🦞 WhatsApp Pairing Required")
-						fmt.Println("  ──────────────────────────────")
-						fmt.Println("  Scan this QR code with WhatsApp (Linked Devices):")
+						fmt.Println("\n  ⚠️  WhatsApp session not found — pairing required")
+						fmt.Println("  Scan this QR code or re-run 'luckyclaw onboard' to pair via link code:")
 						qrterminal.GenerateWithConfig(evt.Code, qrterminal.Config{
 							Level:      qrterminal.L,
 							Writer:     os.Stdout,
@@ -505,13 +500,10 @@ func (c *WhatsAppChannel) handleIncoming(evt *events.Message) {
 		}
 	}
 
-	// Ensure temp media files are cleaned up even on early-exit paths (group filter, empty content).
-	// For messages that reach the bus, loop.go's centralized cleanup handles deletion after LLM processing.
-	defer func() {
-		for _, f := range localFiles {
-			os.Remove(f)
-		}
-	}()
+	// NOTE: Do NOT defer-cleanup localFiles here. HandleMessage() publishes to an
+	// async buffered channel — the defer would fire before the agent reads the file.
+	// Cleanup for messages that reach the bus is handled in loop.go's centralized cleanup.
+	// Early-exit paths below (group filter, empty content) clean up explicitly.
 
 	// --- v0.2.2-rc4: Group Spam Filtering & Contextual Quotes ---
 	var isGroup = strings.HasSuffix(chatID, "@g.us")
@@ -599,6 +591,10 @@ func (c *WhatsAppChannel) handleIncoming(evt *events.Message) {
 	if isGroup {
 		// Silently drop if not interacting with the bot
 		if !isMentioned && !isReplyToBot {
+			// Clean up temp media files on early exit (bus is never reached)
+			for _, f := range localFiles {
+				os.Remove(f)
+			}
 			return
 		}
 	}
@@ -610,6 +606,10 @@ func (c *WhatsAppChannel) handleIncoming(evt *events.Message) {
 
 	if content == "" && len(mediaPaths) == 0 {
 		logger.InfoCF("whatsapp", "Dropping empty message", map[string]any{"sender": senderID})
+		// Clean up temp media files on early exit (bus is never reached)
+		for _, f := range localFiles {
+			os.Remove(f)
+		}
 		return
 	}
 

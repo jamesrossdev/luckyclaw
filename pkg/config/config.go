@@ -65,6 +65,7 @@ type AgentDefaults struct {
 	Provider            string  `json:"provider" env:"LUCKYCLAW_AGENTS_DEFAULTS_PROVIDER"`
 	Model               string  `json:"model" env:"LUCKYCLAW_AGENTS_DEFAULTS_MODEL"`
 	MaxTokens           int     `json:"max_tokens" env:"LUCKYCLAW_AGENTS_DEFAULTS_MAX_TOKENS"`
+	ContextWindow       int     `json:"context_window" env:"LUCKYCLAW_AGENTS_DEFAULTS_CONTEXT_WINDOW"`
 	Temperature         float64 `json:"temperature" env:"LUCKYCLAW_AGENTS_DEFAULTS_TEMPERATURE"`
 	MaxToolIterations   int     `json:"max_tool_iterations" env:"LUCKYCLAW_AGENTS_DEFAULTS_MAX_TOOL_ITERATIONS"`
 }
@@ -230,7 +231,8 @@ func DefaultConfig() *Config {
 				RestrictToWorkspace: true,
 				Provider:            "openrouter",
 				Model:               "stepfun/step-3.5-flash:free",
-				MaxTokens:           16384,
+				MaxTokens:           4096,
+				ContextWindow:       256000,
 				Temperature:         0.7,
 				MaxToolIterations:   25,
 			},

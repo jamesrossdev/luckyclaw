@@ -56,7 +56,7 @@ import (
 var embeddedFiles embed.FS
 
 var (
-	version   = "v0.2.2-rc16"
+	version   = "v0.2.2-rc22"
 	gitCommit string
 	buildTime string
 	goVersion string
@@ -583,11 +583,6 @@ func onboard() {
 	fmt.Println()
 	if promptYN("  Start LuckyClaw gateway now?") {
 		gatewayStartBackground()
-		if cfg.Channels.WhatsApp.Enabled {
-			fmt.Println("\n  🦞 WhatsApp pairing is enabled.")
-			fmt.Println("  The QR code has been written to: /var/log/luckyclaw.log")
-			fmt.Println("  Or run 'luckyclaw stop && luckyclaw gateway' to see it here.")
-		}
 	}
 
 	fmt.Println()

@@ -106,6 +106,8 @@ func PerformSetup(sessionPath string, expectedCode string, pairPhone string) (st
 			select {
 			case <-waitForLogin:
 				fmt.Println("  ✓ Device successfully paired!")
+				// Allow WhatsApp to finish post-pair sync before disconnecting
+				time.Sleep(5 * time.Second)
 			case <-time.After(5 * time.Minute):
 				return "", fmt.Errorf("phone pairing timed out")
 			}

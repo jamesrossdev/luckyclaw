@@ -20,6 +20,12 @@ export PATH=$PATH:/usr/bin:/usr/local/bin:/sbin:/bin
 grep -q "api.telegram.org" /etc/hosts 2>/dev/null || \
   echo "149.154.166.110 api.telegram.org" >> /etc/hosts
 
+# Kill ADB daemon to save RAM (~1.5MB)
+if [ -f /etc/init.d/S90adbd ]; then
+  /etc/init.d/S90adbd stop 2>/dev/null
+fi
+killall -9 adbd 2>/dev/null
+
 case "$1" in
   start)
     # Check if config exists (user needs to run 'luckyclaw onboard' first)

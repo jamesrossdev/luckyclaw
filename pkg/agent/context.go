@@ -101,7 +101,7 @@ func (cb *ContextBuilder) getIdentity() string {
 
 	return fmt.Sprintf(`# luckyclaw 🦞
 
-You are luckyclaw, a helpful AI assistant.
+You are luckyclaw. Your personality and behavior are defined by your SOUL.md file.
 
 ## Current Time
 %s
@@ -184,11 +184,13 @@ The following skills extend your capabilities. To use a skill, read its SKILL.md
 }
 
 func (cb *ContextBuilder) LoadBootstrapFiles() string {
+	// IDENTITY.md loads before SOUL.md so that user personality customizations
+	// in SOUL.md take last-word priority over the generic identity defaults.
+	// AGENTS.md was removed — it never existed on production devices.
 	bootstrapFiles := []string{
-		"AGENTS.md",
-		"SOUL.md",
-		"USER.md",
 		"IDENTITY.md",
+		"USER.md",
+		"SOUL.md",
 	}
 
 	var result string
@@ -207,16 +209,17 @@ func (cb *ContextBuilder) BuildMessages(history []providers.Message, summary str
 
 	systemPrompt := cb.BuildSystemPrompt()
 
+	// Inject channel-specific formatting skill BEFORE session info,
+	// giving it higher priority in the LLM's attention.
+	if channel == "whatsapp" {
+		if formatContent, ok := cb.skillsLoader.LoadSkill("whatsapp"); ok {
+			systemPrompt += "\n\n---\n\n# WhatsApp Formatting Rules (MANDATORY)\n" + formatContent
+		}
+	}
+
 	// Add Current Session info if provided
 	if channel != "" && chatID != "" {
 		systemPrompt += fmt.Sprintf("\n\n## Current Session\nChannel: %s\nChat ID: %s", channel, chatID)
-
-		// Inject Native WhatsApp Formatting Skill
-		if channel == "whatsapp" {
-			if formatContent, ok := cb.skillsLoader.LoadSkill("whatsapp"); ok {
-				systemPrompt += "\n\n# WhatsApp Formatting Rules\n" + formatContent
-			}
-		}
 	}
 
 	// Add User Information from metadata
@@ -256,6 +259,8 @@ func (cb *ContextBuilder) BuildMessages(history []providers.Message, summary str
 
 	if summary != "" {
 		systemPrompt += "\n\n## Summary of Previous Conversation\n\n" + summary
+		// Reinforce personality after summary to prevent drift
+		systemPrompt += "\n\n## IMPORTANT REMINDER\n\nYou MUST strictly maintain the personality and behavioral instructions defined in the SOUL section at the top of this prompt, regardless of the tone used in the conversation summary above."
 	}
 
 	//This fix prevents the session memory from LLM failure due to elimination of toolu_IDs required from LLM

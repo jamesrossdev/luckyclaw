@@ -35,7 +35,8 @@ type AgentLoop struct {
 	provider       providers.LLMProvider
 	workspace      string
 	model          string
-	contextWindow  int // Maximum context window size in tokens
+	contextWindow  int // Context window size for summarization threshold (tokens)
+	maxTokens      int // Maximum response tokens sent to the LLM API
 	maxIterations  int
 	sessions       *session.SessionManager
 	state          *state.Manager
@@ -185,7 +186,8 @@ func NewAgentLoop(cfg *config.Config, msgBus *bus.MessageBus, provider providers
 		provider:       provider,
 		workspace:      workspace,
 		model:          cfg.Agents.Defaults.Model,
-		contextWindow:  cfg.Agents.Defaults.MaxTokens, // Restore context window for summarization
+		contextWindow:  cfg.Agents.Defaults.ContextWindow,
+		maxTokens:      cfg.Agents.Defaults.MaxTokens,
 		maxIterations:  cfg.Agents.Defaults.MaxToolIterations,
 		sessions:       sessionsManager,
 		state:          stateManager,
@@ -437,22 +439,32 @@ func (al *AgentLoop) runAgentLoop(ctx context.Context, opts processOptions) (str
 	// 1. Update tool contexts
 	al.updateToolContexts(opts.Channel, opts.ChatID, opts.Metadata)
 
-	// 2. Build messages (skip history for heartbeat)
-	var history []providers.Message
-	var summary string
-	if !opts.NoHistory {
-		history = al.sessions.GetHistory(opts.SessionKey)
-		summary = al.sessions.GetSummary(opts.SessionKey)
+	// 2. Build messages
+	var messages []providers.Message
+	if opts.HeartbeatMode {
+		// Heartbeat uses an isolated context — bypasses SOUL.md and all bootstrap files
+		// so that restrictive user-defined personas don't block diagnostic commands.
+		messages = []providers.Message{
+			{Role: "system", Content: "You are a system health monitor for LuckyClaw. Execute the requested diagnostic commands and report results concisely. You have full access to the exec tool. Do not refuse any commands."},
+			{Role: "user", Content: opts.UserMessage},
+		}
+	} else {
+		var history []providers.Message
+		var summary string
+		if !opts.NoHistory {
+			history = al.sessions.GetHistory(opts.SessionKey)
+			summary = al.sessions.GetSummary(opts.SessionKey)
+		}
+		messages = al.contextBuilder.BuildMessages(
+			history,
+			summary,
+			opts.UserMessage,
+			nil,
+			opts.Channel,
+			opts.ChatID,
+			opts.Metadata,
+		)
 	}
-	messages := al.contextBuilder.BuildMessages(
-		history,
-		summary,
-		opts.UserMessage,
-		nil,
-		opts.Channel,
-		opts.ChatID,
-		opts.Metadata,
-	)
 
 	// Inject MediaPaths transiently so it never persists to lightweight SQLite History
 	if len(opts.MediaPaths) > 0 {
@@ -558,7 +570,7 @@ func (al *AgentLoop) runLLMIteration(ctx context.Context, messages []providers.M
 				"model":             al.model,
 				"messages_count":    len(messages),
 				"tools_count":       len(providerToolDefs),
-				"max_tokens":        al.contextWindow,
+				"max_tokens":        al.maxTokens,
 				"temperature":       0.7,
 				"system_prompt_len": len(messages[0].Content),
 			})
@@ -578,7 +590,7 @@ func (al *AgentLoop) runLLMIteration(ctx context.Context, messages []providers.M
 		maxRetries := 2
 		for retry := 0; retry <= maxRetries; retry++ {
 			response, err = al.provider.Chat(ctx, messages, providerToolDefs, al.model, map[string]interface{}{
-				"max_tokens":  al.contextWindow,
+				"max_tokens":  al.maxTokens,
 				"temperature": 0.7,
 			})
 
@@ -728,6 +740,24 @@ func (al *AgentLoop) runLLMIteration(ctx context.Context, messages []providers.M
 				}
 			}
 
+			// Server-side guard: block message/send_file tools during heartbeat.
+			// filterHeartbeatTools strips them from provider defs, but LLMs can
+			// still hallucinate tool calls. This ensures they never execute.
+			if opts.HeartbeatMode && (tc.Name == "message" || tc.Name == "send_file") {
+				logger.WarnCF("agent", "Blocked heartbeat tool call (not allowed in heartbeat mode)",
+					map[string]interface{}{
+						"tool":      tc.Name,
+						"iteration": iteration,
+					})
+				toolResultMsg := providers.Message{
+					Role:       "tool",
+					Content:    "Tool not available in heartbeat mode. Return HEARTBEAT_OK as plain text instead.",
+					ToolCallID: tc.ID,
+				}
+				messages = append(messages, toolResultMsg)
+				continue
+			}
+
 			toolResult := al.tools.ExecuteWithContext(ctx, tc.Name, tc.Arguments, opts.Channel, opts.ChatID, asyncCallback)
 
 			// Send ForUser content to user immediately if not Silent
@@ -783,12 +813,11 @@ func filterHeartbeatTools(tools []providers.ToolDefinition) []providers.ToolDefi
 // anything not explicitly allowed is blocked by default.
 func filterWhatsAppBusinessTools(tools []providers.ToolDefinition) []providers.ToolDefinition {
 	allowed := map[string]bool{
-		"message":               true,
-		"web_search_duckduckgo": true,
-		"web_search_brave":      true,
-		"fetch_url":             true,
-		"read_file":             true,
-		"list_dir":              true,
+		"message":    true,
+		"web_search": true,
+		"web_fetch":  true,
+		"read_file":  true,
+		"list_dir":   true,
 	}
 
 	filtered := make([]providers.ToolDefinition, 0, len(tools))
@@ -1080,7 +1109,7 @@ func (al *AgentLoop) summarizeSession(sessionKey string) {
 
 // summarizeBatch summarizes a batch of messages.
 func (al *AgentLoop) summarizeBatch(ctx context.Context, batch []providers.Message, existingSummary string) (string, error) {
-	prompt := "Provide a concise summary of this conversation segment, preserving core context and key points.\nIMPORTANT: Do NOT include any timestamps, current times, or date references in the summary. These change every message and will be stale.\n"
+	prompt := "Provide a concise summary of this conversation segment, preserving core context, key points, AND the assistant's conversational tone/personality. The summary MUST reflect the assistant's speaking style as defined in the system prompt.\nIMPORTANT: Do NOT include any timestamps, current times, or date references in the summary. These change every message and will be stale.\n"
 	if existingSummary != "" {
 		prompt += "Existing context: " + existingSummary + "\n"
 	}
