@@ -29,6 +29,7 @@ import (
 	"github.com/jamesrossdev/luckyclaw/pkg/bus"
 	"github.com/jamesrossdev/luckyclaw/pkg/channels"
 	"github.com/jamesrossdev/luckyclaw/pkg/config"
+	"github.com/jamesrossdev/luckyclaw/pkg/extract"
 	"github.com/jamesrossdev/luckyclaw/pkg/logger"
 )
 
@@ -468,7 +469,22 @@ func (c *WhatsAppChannel) handleIncoming(evt *events.Message) {
 				strings.HasSuffix(lowerFilename, ".json") ||
 				strings.HasSuffix(lowerFilename, ".log") ||
 				strings.HasSuffix(lowerFilename, ".yaml") ||
-				strings.HasSuffix(lowerFilename, ".yml")
+				strings.HasSuffix(lowerFilename, ".yml") ||
+				strings.HasSuffix(lowerFilename, ".py") ||
+				strings.HasSuffix(lowerFilename, ".js") ||
+				strings.HasSuffix(lowerFilename, ".ts") ||
+				strings.HasSuffix(lowerFilename, ".go") ||
+				strings.HasSuffix(lowerFilename, ".sh") ||
+				strings.HasSuffix(lowerFilename, ".html") ||
+				strings.HasSuffix(lowerFilename, ".css") ||
+				strings.HasSuffix(lowerFilename, ".c") ||
+				strings.HasSuffix(lowerFilename, ".cpp") ||
+				strings.HasSuffix(lowerFilename, ".h") ||
+				strings.HasSuffix(lowerFilename, ".sql")
+
+			isDocx := strings.HasSuffix(lowerFilename, ".docx")
+			isXlsx := strings.HasSuffix(lowerFilename, ".xlsx")
+			isPptx := strings.HasSuffix(lowerFilename, ".pptx")
 
 			if isText {
 				logger.InfoCF("whatsapp", "Ingested plain-text file natively", map[string]any{"filename": filename, "size": len(data)})
@@ -476,6 +492,19 @@ func (c *WhatsAppChannel) handleIncoming(evt *events.Message) {
 					filename = "attached_file.txt"
 				}
 				content = fmt.Sprintf("[Attached File: %s]\n\n%s\n\n%s", filename, string(data), content)
+			} else if isDocx {
+				text, err := extract.Docx(data)
+				if err != nil {
+					logger.WarnCF("whatsapp", "Failed to extract text from docx", map[string]any{"filename": filename, "error": err})
+					content = fmt.Sprintf("[File: %s - could not extract text. Please paste the content directly.]%s", filename, content)
+				} else {
+					logger.InfoCF("whatsapp", "Extracted text from docx", map[string]any{"filename": filename, "size": len(text)})
+					baseName := strings.TrimSuffix(filename, filepath.Ext(filename))
+					content = fmt.Sprintf("[Attached File: %s (extracted text).txt]\n\n%s\n\n%s", baseName, text, content)
+				}
+			} else if isXlsx || isPptx {
+				logger.WarnCF("whatsapp", "Unsupported office format", map[string]any{"filename": filename})
+				content = fmt.Sprintf("[File: %s - format not supported. Please convert to .docx or paste content directly.]%s", filename, content)
 			} else {
 				if strings.HasPrefix(mimetype, "image/") || evt.Message.ImageMessage != nil {
 					if compressedData, errCompress := compressImage(data); errCompress == nil {
@@ -485,12 +514,36 @@ func (c *WhatsAppChannel) handleIncoming(evt *events.Message) {
 					}
 				}
 
-				if tmpFile, err := os.CreateTemp("", "wa-media-*"); err == nil {
+				// Determine extension for temp file to aid mime detection in provider
+				ext := ""
+				if filename != "" {
+					ext = filepath.Ext(filename)
+				}
+				if ext == "" {
+					// Fallback to mime-based extension
+					parts := strings.Split(mimetype, "/")
+					if len(parts) == 2 {
+						ext = "." + parts[1]
+						// Common cleanups
+						if ext == ".jpeg" {
+							ext = ".jpg"
+						} else if ext == ".plain" {
+							ext = ".txt"
+						}
+					}
+				}
+
+				if tmpFile, err := os.CreateTemp("", "wa-media-*"+ext); err == nil {
 					tmpFile.Write(data)
 					tmpFile.Close()
 					localFiles = append(localFiles, tmpFile.Name())
 					mediaPaths = append(mediaPaths, tmpFile.Name())
-					content = fmt.Sprintf("[media loaded]\n%s", content)
+					// Append filename to content for LLM context if it's a non-image document
+					docInfo := ""
+					if filename != "" {
+						docInfo = fmt.Sprintf(" [File: %s]", filename)
+					}
+					content = fmt.Sprintf("[media loaded%s]\n%s", docInfo, content)
 				} else {
 					logger.WarnCF("whatsapp", "Failed to save media", map[string]any{"error": err.Error()})
 				}

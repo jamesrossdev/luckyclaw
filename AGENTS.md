@@ -107,6 +107,9 @@ LuckyClaw is **not** trying to be PicoClaw or nanobot. It is PicoClaw's simpler,
 - ❌ **Never port**: Feature additions targeting developers or power users (MCP, vision, Web UI, system tray, new channels, new providers, model routing)
 
 When in doubt, ask: *"Would a normal person on a $10 board benefit from this?"* If the answer is no, leave it upstream.
+
+### 16. Load Average Metric Inaccuracy
+The Linux load average on Luckfox Pico (RV1103) is **not an accurate measure of CPU saturation**. It often sits at ~10.0 even when the device is 99% idle. This is because ~20 RV1103-specific kernel threads (ISP, NPU, Video) frequently enter uninterruptible sleep (D-state), which Linux counts towards the load average. **Fix**: Use `top` or `mpstat` to verify actual idle percentage; do not panic over high load averages. This requires deeper investigation at a later date.
  
 
 ## Build & Deploy

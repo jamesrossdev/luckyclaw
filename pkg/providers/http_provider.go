@@ -104,23 +104,61 @@ func (p *HTTPProvider) Chat(ctx context.Context, messages []Message, tools []Too
 					})
 					continue
 				}
+				// Detect mimetype and decide payload type
+				mimeType := ""
+				payloadType := "image_url" // Default to image_url for standard vision
+				imgPathLower := strings.ToLower(imgPath)
+
+				// Image formats (use image_url)
+				if strings.HasSuffix(imgPathLower, ".jpg") || strings.HasSuffix(imgPathLower, ".jpeg") {
+					mimeType = "image/jpeg"
+				} else if strings.HasSuffix(imgPathLower, ".png") {
+					mimeType = "image/png"
+				} else if strings.HasSuffix(imgPathLower, ".gif") {
+					mimeType = "image/gif"
+				} else if strings.HasSuffix(imgPathLower, ".webp") {
+					mimeType = "image/webp"
+
+					// Document formats (use type: "file" per OpenRouter spec for binary docs)
+					// Note: DOCX/XLSX/PPTX are now extracted to text in whatsapp.go
+					// Only PDF goes through the file-parser plugin
+				} else if strings.HasSuffix(imgPathLower, ".pdf") {
+					mimeType = "application/pdf"
+					payloadType = "file"
+				}
+
+				// If we don't recognize the type, omit to avoid provider 400 errors.
+				// (Plain text/code should have been natively ingested in whatsapp.go).
+				if mimeType == "" {
+					contentArray = append(contentArray, map[string]interface{}{
+						"type": "text",
+						"text": fmt.Sprintf("[attachment omitted: unsupported format %s]", filepath.Base(imgPath)),
+					})
+					continue
+				}
+
 				if imgData, err := os.ReadFile(imgPath); err == nil {
 					base64Str := base64.StdEncoding.EncodeToString(imgData)
-					mimeType := "image/jpeg"
-					imgPathLower := strings.ToLower(imgPath)
-					if strings.HasSuffix(imgPathLower, ".png") {
-						mimeType = "image/png"
-					} else if strings.HasSuffix(imgPathLower, ".gif") {
-						mimeType = "image/gif"
-					} else if strings.HasSuffix(imgPathLower, ".webp") {
-						mimeType = "image/webp"
+					dataURL := fmt.Sprintf("data:%s;base64,%s", mimeType, base64Str)
+
+					if payloadType == "file" {
+						// OpenRouter native file format
+						contentArray = append(contentArray, map[string]interface{}{
+							"type": "file",
+							"file": map[string]string{
+								"file_data": dataURL,
+								"filename":  filepath.Base(imgPath),
+							},
+						})
+					} else {
+						// Standard OpenAI vision format
+						contentArray = append(contentArray, map[string]interface{}{
+							"type": "image_url",
+							"image_url": map[string]string{
+								"url": dataURL,
+							},
+						})
 					}
-					contentArray = append(contentArray, map[string]interface{}{
-						"type": "image_url",
-						"image_url": map[string]string{
-							"url": fmt.Sprintf("data:%s;base64,%s", mimeType, base64Str),
-						},
-					})
 				}
 			}
 			formattedMsg["content"] = contentArray
@@ -165,6 +203,17 @@ func (p *HTTPProvider) Chat(ctx context.Context, messages []Message, tools []Too
 		} else {
 			requestBody["temperature"] = temperature
 		}
+	}
+
+	// Enable file-parser plugin for document support (PDF, DOCX, etc.)
+	// This allows OpenRouter to parse documents for models that don't natively support them
+	requestBody["plugins"] = []map[string]interface{}{
+		{
+			"id": "file-parser",
+			"pdf": map[string]string{
+				"engine": "cloudflare-ai",
+			},
+		},
 	}
 
 	jsonData, err := json.Marshal(requestBody)
