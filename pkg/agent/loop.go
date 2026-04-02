@@ -50,17 +50,19 @@ type AgentLoop struct {
 
 // processOptions configures how a message is processed
 type processOptions struct {
-	SessionKey      string            // Session identifier for history/context
-	Channel         string            // Target channel for tool execution
-	ChatID          string            // Target chat ID for tool execution
-	UserMessage     string            // User message content (may include prefix)
-	MediaPaths      []string          // Added for multi-modal attachment ingestion
-	DefaultResponse string            // Response when LLM returns empty
-	EnableSummary   bool              // Whether to trigger summarization
-	SendResponse    bool              // Whether to send response via bus
-	NoHistory       bool              // If true, don't load session history (for heartbeat)
-	HeartbeatMode   bool              // If true, exclude message/send_file tools from LLM
-	Metadata        map[string]string // Optional message metadata (e.g. guild_id for Discord)
+	SessionKey         string            // Session identifier for history/context
+	Channel            string            // Target channel for tool execution
+	ChatID             string            // Target chat ID for tool execution
+	UserMessage        string            // User message content (may include prefix)
+	MediaPaths         []string          // Added for multi-modal attachment ingestion
+	DefaultResponse    string            // Response when LLM returns empty
+	EnableSummary      bool              // Whether to trigger summarization
+	SendResponse       bool              // Whether to send response via bus
+	NoHistory          bool              // If true, don't load session history (for heartbeat)
+	HeartbeatMode      bool              // If true, exclude message/send_file tools from LLM
+	Metadata           map[string]string // Optional message metadata (e.g. guild_id for Discord)
+	ReplyToStanzaID    string            // WhatsApp: stanza ID to reply to
+	ReplyToParticipant string            // WhatsApp: sender JID for reply-to
 }
 
 // createToolRegistry creates a tool registry with common tools.
@@ -93,18 +95,43 @@ func createToolRegistry(workspace string, restrict bool, cfg *config.Config, msg
 	registry.Register(tools.NewI2CTool())
 	registry.Register(tools.NewSPITool())
 
-	// Message tool - available to both agent and subagent
-	// Uses SendDirect for synchronous sends so errors (e.g. Discord 403) are
-	// returned to the LLM, preventing infinite retry loops.
-	messageTool := tools.NewMessageTool()
-	messageTool.SetSendCallback(func(channel, chatID, content string) error {
-		return msgBus.SendDirect(context.Background(), bus.OutboundMessage{
-			Channel: channel,
-			ChatID:  chatID,
-			Content: content,
+	// Message tool - only available in personal mode (not business mode)
+	// In business mode, messaging is controlled via API only to prevent spam
+	if !cfg.Channels.WhatsApp.BusinessMode {
+		messageTool := tools.NewMessageTool()
+		messageTool.SetSendCallback(func(channel, chatID, content, replyToStanzaID, replyToParticipant string) error {
+			return msgBus.SendDirect(context.Background(), bus.OutboundMessage{
+				Channel:            channel,
+				ChatID:             chatID,
+				Content:            content,
+				ReplyToStanzaID:    replyToStanzaID,
+				ReplyToParticipant: replyToParticipant,
+			})
 		})
-	})
-	registry.Register(messageTool)
+		registry.Register(messageTool)
+
+		// Schedule tool - allows scheduling WhatsApp events/appointments
+		// Only available in personal mode where users can directly request appointments
+		scheduleTool := tools.NewScheduleTool()
+		scheduleTool.SetEventCallback(func(channel, chatID string, event tools.EventDetails) error {
+			return msgBus.SendDirect(context.Background(), bus.OutboundMessage{
+				Channel:              channel,
+				ChatID:               chatID,
+				EventName:            event.Name,
+				EventDescription:     event.Description,
+				EventStartTime:       event.StartTime,
+				EventEndTime:         event.EndTime,
+				EventLocationName:    event.LocationName,
+				EventLocationAddress: event.LocationAddress,
+				EventLatitude:        event.Latitude,
+				EventLongitude:       event.Longitude,
+				EventJoinLink:        event.JoinLink,
+				EventIsCall:          event.IsCall,
+				EventIsCanceled:      event.IsCanceled,
+			})
+		})
+		registry.Register(scheduleTool)
+	}
 
 	// Send file tool - sends files as Telegram attachments
 	sendFileTool := tools.NewSendFileTool()
@@ -335,15 +362,17 @@ func (al *AgentLoop) processMessage(ctx context.Context, msg bus.InboundMessage)
 
 	// Process as user message
 	response, err := al.runAgentLoop(ctx, processOptions{
-		SessionKey:      msg.SessionKey,
-		Channel:         msg.Channel,
-		ChatID:          msg.ChatID,
-		UserMessage:     msg.Content,
-		MediaPaths:      msg.Media,
-		Metadata:        msg.Metadata,
-		DefaultResponse: "I've completed processing but have no response to give.",
-		EnableSummary:   true,
-		SendResponse:    false,
+		SessionKey:         msg.SessionKey,
+		Channel:            msg.Channel,
+		ChatID:             msg.ChatID,
+		UserMessage:        msg.Content,
+		MediaPaths:         msg.Media,
+		Metadata:           msg.Metadata,
+		ReplyToStanzaID:    msg.StanzaID,
+		ReplyToParticipant: msg.ReplyToParticipant,
+		DefaultResponse:    "I've completed processing but have no response to give.",
+		EnableSummary:      true,
+		SendResponse:       false,
 	})
 
 	// --- Centralized Media Cleanup ---
@@ -437,7 +466,7 @@ func (al *AgentLoop) runAgentLoop(ctx context.Context, opts processOptions) (str
 	}
 
 	// 1. Update tool contexts
-	al.updateToolContexts(opts.Channel, opts.ChatID, opts.Metadata)
+	al.updateToolContexts(opts.Channel, opts.ChatID, opts.Metadata, opts.ReplyToStanzaID, opts.ReplyToParticipant)
 
 	// 2. Build messages
 	var messages []providers.Message
@@ -571,7 +600,7 @@ func (al *AgentLoop) runLLMIteration(ctx context.Context, messages []providers.M
 				"messages_count":    len(messages),
 				"tools_count":       len(providerToolDefs),
 				"max_tokens":        al.maxTokens,
-				"temperature":       0.7,
+				"temperature":       0.6,
 				"system_prompt_len": len(messages[0].Content),
 			})
 
@@ -591,7 +620,7 @@ func (al *AgentLoop) runLLMIteration(ctx context.Context, messages []providers.M
 		for retry := 0; retry <= maxRetries; retry++ {
 			response, err = al.provider.Chat(ctx, messages, providerToolDefs, al.model, map[string]interface{}{
 				"max_tokens":  al.maxTokens,
-				"temperature": 0.7,
+				"temperature": 0.6,
 			})
 
 			if err == nil {
@@ -850,11 +879,16 @@ func filterDiscordTools(tools []providers.ToolDefinition) []providers.ToolDefini
 }
 
 // updateToolContexts updates the context for tools that need channel/chatID info.
-func (al *AgentLoop) updateToolContexts(channel, chatID string, metadata map[string]string) {
+func (al *AgentLoop) updateToolContexts(channel, chatID string, metadata map[string]string, replyToStanzaID, replyToParticipant string) {
 	// Use ContextualTool interface instead of type assertions
 	if tool, ok := al.tools.Get("message"); ok {
 		if mt, ok := tool.(tools.ContextualTool); ok {
 			mt.SetContext(channel, chatID)
+		}
+		// Also set reply-to stanza ID for WhatsApp group replies
+		if mt, ok := tool.(*tools.MessageTool); ok {
+			mt.SetReplyToStanzaID(replyToStanzaID)
+			mt.SetReplyToParticipant(replyToParticipant)
 		}
 	}
 	if tool, ok := al.tools.Get("send_file"); ok {

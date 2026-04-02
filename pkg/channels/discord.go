@@ -483,7 +483,7 @@ func (c *DiscordChannel) handleMessage(s *discordgo.Session, m *discordgo.Messag
 	// Trigger "is typing" indicator while the agent processes this message
 	s.ChannelTyping(m.ChannelID)
 
-	c.HandleMessage(senderID, m.ChannelID, content, mediaPaths, metadata)
+	c.HandleMessage(senderID, m.ChannelID, content, mediaPaths, metadata, "", "")
 }
 
 func (c *DiscordChannel) downloadAttachment(url, filename string) string {

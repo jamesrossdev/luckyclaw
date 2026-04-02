@@ -323,6 +323,12 @@ func (c *WhatsAppChannel) reconnectWithBackoff() {
 			return
 		}
 
+		// Check if already connected before attempting reconnect
+		if client.IsConnected() {
+			logger.DebugC("whatsapp", "Already connected, skipping reconnect")
+			return
+		}
+
 		logger.InfoCF("whatsapp", "WhatsApp reconnecting", map[string]any{"backoff": backoff.String()})
 		err := client.Connect()
 		if err == nil {
@@ -357,7 +363,13 @@ func (c *WhatsAppChannel) handleIncoming(evt *events.Message) {
 	logger.InfoCF(
 		"whatsapp",
 		"RAW WhatsApp message received",
-		map[string]any{"sender_user": senderID, "chat_string": chatID, "is_from_me": evt.Info.IsFromMe},
+		map[string]any{
+			"sender_user": senderID,
+			"chat_string": chatID,
+			"is_from_me":  evt.Info.IsFromMe,
+			"stanza_id":   evt.Info.ID,
+			"sender_jid":  evt.Info.Sender.String(),
+		},
 	)
 
 	// If it's from me, it means I sent it from another device (like my phone)
@@ -416,6 +428,33 @@ func (c *WhatsAppChannel) handleIncoming(evt *events.Message) {
 	c.mu.Lock()
 	pclient := c.client
 	c.mu.Unlock()
+
+	// Handle contact cards (vCard)
+	if evt.Message.ContactMessage != nil {
+		displayName := evt.Message.ContactMessage.GetDisplayName()
+		vcard := evt.Message.ContactMessage.GetVcard()
+		if displayName != "" && vcard != "" {
+			content = fmt.Sprintf("[Contact Card: %s]\n\n%s", displayName, vcard)
+			logger.InfoCF("whatsapp", "Received contact card", map[string]any{"name": displayName, "sender": senderID})
+		} else {
+			content = fmt.Sprintf("[Contact Card: %s]", displayName)
+		}
+	} else if evt.Message.ContactsArrayMessage != nil {
+		var contacts []string
+		for _, c := range evt.Message.ContactsArrayMessage.GetContacts() {
+			name := c.GetDisplayName()
+			vc := c.GetVcard()
+			if name != "" && vc != "" {
+				contacts = append(contacts, fmt.Sprintf("- %s:\n%s", name, vc))
+			} else if name != "" {
+				contacts = append(contacts, fmt.Sprintf("- %s", name))
+			}
+		}
+		if len(contacts) > 0 {
+			content = fmt.Sprintf("[Contact Cards: %d contacts]\n\n%s", len(contacts), strings.Join(contacts, "\n"))
+		}
+		logger.InfoCF("whatsapp", "Received contact array", map[string]any{"count": len(contacts), "sender": senderID})
+	}
 
 	if pclient != nil {
 		if evt.Message.DocumentMessage != nil {
@@ -687,8 +726,8 @@ func (c *WhatsAppChannel) handleIncoming(evt *events.Message) {
 		}(targetJID, evt.Info.ID, evt.Info.Timestamp, evt.Info.Sender)
 	}
 
-	// BaseChannel.HandleMessage(senderID, chatID, content, media []string, metadata map[string]string)
-	c.HandleMessage(senderID, chatID, content, mediaPaths, metadata)
+	// BaseChannel.HandleMessage(senderID, chatID, content, media []string, metadata map[string]string, stanzaID string, replyToParticipant string)
+	c.HandleMessage(senderID, chatID, content, mediaPaths, metadata, evt.Info.ID, evt.Info.Sender.String())
 }
 
 func (c *WhatsAppChannel) Send(ctx context.Context, msg bus.OutboundMessage) error {
@@ -708,22 +747,141 @@ func (c *WhatsAppChannel) Send(ctx context.Context, msg bus.OutboundMessage) err
 		return fmt.Errorf("whatsapp not yet paired")
 	}
 
-	to, err := types.ParseJID(msg.ChatID)
-	if err != nil {
-		// If it doesn't contain @, assume it's a phone number and add the user server
-		if !strings.Contains(msg.ChatID, "@") {
-			to = types.NewJID(msg.ChatID, types.DefaultUserServer)
-		} else {
+	var to types.JID
+	var err error
+
+	if !strings.Contains(msg.ChatID, "@") {
+		// Bare phone number — always construct JID directly
+		to = types.NewJID(msg.ChatID, types.DefaultUserServer)
+	} else {
+		// Full JID — parse it
+		to, err = types.ParseJID(msg.ChatID)
+		if err != nil {
 			return fmt.Errorf("invalid chat id %q: %w", msg.ChatID, err)
 		}
 	}
 
-	waMsg := &waE2E.Message{
-		Conversation: proto.String(msg.Content),
+	// Handle EventMessage (scheduling/cancellation)
+	if msg.EventName != "" || msg.EventIsCanceled {
+		return c.sendEventMessage(ctx, to, msg)
+	}
+
+	// Only validate bare phone numbers (new contacts)
+	// Full JIDs (phone@server or group@g.us) skip validation
+	isBarePhone := to.Server == types.DefaultUserServer && !strings.Contains(msg.ChatID, "@")
+	if isBarePhone {
+		// Business mode restriction: sending to other contacts disabled
+		if c.config.BusinessMode {
+			return fmt.Errorf("sending to other contacts is disabled in business mode")
+		}
+
+		// Validate phone number is registered on WhatsApp
+		valid, err := c.validatePhoneNumber(ctx, to.User)
+		if err != nil {
+			logger.WarnCF("whatsapp", "Phone validation failed", map[string]any{"phone": to.User, "error": err})
+			return fmt.Errorf("failed to validate phone number %s: %w", to.User, err)
+		}
+		if !valid {
+			return fmt.Errorf("phone number %s is not on WhatsApp", to.User)
+		}
+	}
+
+	// Use ExtendedTextMessage with ContextInfo for threading when:
+	// - Business mode is enabled (DMs need context for multi-question customers), OR
+	// - It's a group chat (always quote for group context)
+	isGroup := strings.HasSuffix(to.String(), "@g.us")
+	shouldQuote := msg.ReplyToStanzaID != "" && (c.config.BusinessMode || isGroup)
+	var waMsg *waE2E.Message
+	if shouldQuote {
+		waMsg = &waE2E.Message{
+			ExtendedTextMessage: &waE2E.ExtendedTextMessage{
+				Text: proto.String(msg.Content),
+				ContextInfo: &waE2E.ContextInfo{
+					StanzaID:    proto.String(msg.ReplyToStanzaID),
+					Participant: proto.String(msg.ReplyToParticipant),
+				},
+			},
+		}
+		logger.InfoCF("whatsapp", "Sending ExtendedTextMessage", map[string]any{
+			"to":                        to.String(),
+			"text_length":               len(msg.Content),
+			"context_stanza_id":         msg.ReplyToStanzaID,
+			"context_participant":       msg.ReplyToParticipant,
+			"has_extended_text_message": waMsg.ExtendedTextMessage != nil,
+		})
+	} else {
+		waMsg = &waE2E.Message{
+			Conversation: proto.String(msg.Content),
+		}
 	}
 
 	if _, err = client.SendMessage(ctx, to, waMsg); err != nil {
 		return fmt.Errorf("whatsapp send failed: %w", err)
+	}
+	return nil
+}
+
+// sendEventMessage handles WhatsApp EventMessage (appointments/schedules/cancellations).
+func (c *WhatsAppChannel) sendEventMessage(ctx context.Context, to types.JID, msg bus.OutboundMessage) error {
+	c.mu.Lock()
+	client := c.client
+	c.mu.Unlock()
+
+	// Validate phone number for first-contact event sends
+	// Events are allowed to be sent to new contacts (booking flow)
+	isBarePhone := to.Server == types.DefaultUserServer && !strings.Contains(msg.ChatID, "@")
+	if isBarePhone {
+		valid, err := c.validatePhoneNumber(ctx, to.User)
+		if err != nil {
+			logger.WarnCF("whatsapp", "Event phone validation failed", map[string]any{"phone": to.User, "error": err})
+			return fmt.Errorf("failed to validate phone number %s: %w", to.User, err)
+		}
+		if !valid {
+			return fmt.Errorf("phone number %s is not on WhatsApp", to.User)
+		}
+	}
+
+	// Build EventMessage
+	eventMsg := &waE2E.EventMessage{
+		Name:        proto.String(msg.EventName),
+		Description: proto.String(msg.EventDescription),
+		StartTime:   proto.Int64(msg.EventStartTime),
+		EndTime:     proto.Int64(msg.EventEndTime),
+		IsCanceled:  proto.Bool(msg.EventIsCanceled),
+	}
+
+	// Set call mode if it's a video/voice call
+	if msg.EventIsCall {
+		eventMsg.IsScheduleCall = proto.Bool(true)
+		if msg.EventJoinLink != "" {
+			eventMsg.JoinLink = proto.String(msg.EventJoinLink)
+		}
+	}
+
+	// Set location if provided
+	if msg.EventLocationName != "" || msg.EventLocationAddress != "" || (msg.EventLatitude != 0 && msg.EventLongitude != 0) {
+		eventMsg.Location = &waE2E.LocationMessage{
+			Name:             proto.String(msg.EventLocationName),
+			Address:          proto.String(msg.EventLocationAddress),
+			DegreesLatitude:  proto.Float64(msg.EventLatitude),
+			DegreesLongitude: proto.Float64(msg.EventLongitude),
+		}
+	}
+
+	waMsg := &waE2E.Message{
+		EventMessage: eventMsg,
+	}
+
+	logger.InfoCF("whatsapp", "Sending WhatsApp event", map[string]any{
+		"to":          to.String(),
+		"name":        msg.EventName,
+		"is_canceled": msg.EventIsCanceled,
+		"is_call":     msg.EventIsCall,
+		"start_time":  msg.EventStartTime,
+	})
+
+	if _, err := client.SendMessage(ctx, to, waMsg); err != nil {
+		return fmt.Errorf("whatsapp event send failed: %w", err)
 	}
 	return nil
 }
@@ -741,4 +899,24 @@ func (c *WhatsAppChannel) GetSelfJID() string {
 		return ""
 	}
 	return c.client.Store.ID.User + "@" + c.client.Store.ID.Server
+}
+
+// validatePhoneNumber checks if a phone number is registered on WhatsApp.
+func (c *WhatsAppChannel) validatePhoneNumber(ctx context.Context, phone string) (bool, error) {
+	c.mu.Lock()
+	client := c.client
+	c.mu.Unlock()
+
+	if client == nil {
+		return false, fmt.Errorf("client not connected")
+	}
+
+	results, err := client.IsOnWhatsApp(ctx, []string{phone})
+	if err != nil {
+		return false, fmt.Errorf("is-on-whatsapp check failed: %w", err)
+	}
+	if len(results) == 0 {
+		return false, nil
+	}
+	return results[0].IsIn, nil
 }

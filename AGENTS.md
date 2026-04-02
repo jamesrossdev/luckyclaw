@@ -44,7 +44,7 @@ firmware/overlay/etc/     ← Init script + SSH banner baked into firmware rootf
 - **Init script**: Auto-starts gateway on boot with OOM protection
 - **SSH banner**: Shows ASCII art, status, memory, all commands on login
 - **Default model**: `stepfun/step-3.5-flash:free` (free tier)
-- **Defaults**: `max_tokens=16384`, `max_tool_iterations=25` (tuned for web search headroom)
+- **Defaults**: `max_tokens=16384`, `max_tool_iterations=25`, `context_window=model-specific` (queried during onboarding)
 
 ### What We Did NOT Change
 All PicoClaw channels (Telegram, Discord, QQ, LINE, Slack, WhatsApp, etc.) and tools remain in the codebase. Users can configure any provider via `config.json` directly.
@@ -152,6 +152,66 @@ luckyclaw status      # Check everything
 luckyclaw gateway -b  # Start in background
 luckyclaw stop        # Stop cleanly
 ```
+
+## Development Commands
+
+### Running Tests
+
+```bash
+make check                    # deps + fmt + vet + test (run before commits)
+make test                     # run all tests
+go test ./pkg/extract/...     # run single package tests
+go test -run TestName ./...   # run single test by name
+go test -v ./pkg/agent/...    # verbose output
+```
+
+### Linting & Formatting
+
+```bash
+make fmt                      # format all Go code
+make vet                      # run go vet static analysis
+```
+
+## Code Style Guidelines
+
+### Imports
+Group imports: standard library first, blank line, then external packages.
+```go
+import (
+    "context"
+    "fmt"
+
+    "github.com/jamesrossdev/luckyclaw/pkg/bus"
+)
+```
+
+### Naming Conventions
+- **Exported**: `PascalCase` (e.g., `NewMessageBus`, `SendMessage`)
+- **Private**: `camelCase` (e.g., `sendCallback`, `handleIncoming`)
+- **Constants**: `UPPER_SNAKE_CASE` or `PascalCase` for enum-like values
+
+### Error Handling
+Always wrap errors with context using `%w`:
+```go
+if err != nil {
+    return fmt.Errorf("failed to validate phone: %w", err)
+}
+```
+
+### Logging
+Use structured logging with component and fields:
+```go
+logger.InfoCF("whatsapp", "message received", map[string]any{"sender": senderID})
+logger.WarnCF("whatsapp", "operation failed", map[string]any{"error": err.Error()})
+```
+
+### Comments
+**DO NOT add comments** unless explicitly requested. Code should be self-documenting through clear naming.
+
+### Types
+- Use `interface{}` for JSON tool parameters (flexible schema)
+- Use concrete types for internal APIs
+- Prefer `map[string]any` for structured log fields
 
 ### Build Distributable Firmware Image
 

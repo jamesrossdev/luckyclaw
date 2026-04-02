@@ -54,8 +54,8 @@ func TestFilesystemTool_ReadFile_NotFound(t *testing.T) {
 		t.Errorf("Expected error for missing file, got IsError=false")
 	}
 
-	// Should contain error message
-	if !strings.Contains(result.ForLLM, "failed to read") && !strings.Contains(result.ForUser, "failed to read") {
+	// Should contain error message (either "failed to stat" or "failed to read")
+	if !strings.Contains(result.ForLLM, "failed to") && !strings.Contains(result.ForUser, "failed to") {
 		t.Errorf("Expected error message, got ForLLM: %s, ForUser: %s", result.ForLLM, result.ForUser)
 	}
 }

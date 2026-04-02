@@ -56,7 +56,7 @@ import (
 var embeddedFiles embed.FS
 
 var (
-	version   = "v0.2.2-rc29"
+	version   = "v0.2.2-rc41"
 	gitCommit string
 	buildTime string
 	goVersion string
@@ -293,6 +293,67 @@ func validateOpenRouterKey(apiKey string) error {
 	return nil
 }
 
+// fetchModelContext queries OpenRouter API to get the model's context window and max output tokens.
+// Returns defaults if the query fails.
+func fetchModelContext(apiKey, modelID string) (contextWindow, maxOutputTokens int) {
+	const (
+		defaultContext   = 256000
+		defaultMaxTokens = 16384
+	)
+
+	contextWindow = defaultContext
+	maxOutputTokens = defaultMaxTokens
+
+	url := "https://openrouter.ai/api/v1/models"
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return defaultContext, defaultMaxTokens
+	}
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+
+	client := &http.Client{Timeout: 15 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return defaultContext, defaultMaxTokens
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		return defaultContext, defaultMaxTokens
+	}
+
+	var result struct {
+		Data []struct {
+			ID            string `json:"id"`
+			ContextLength int    `json:"context_length"`
+			TopProvider   struct {
+				MaxCompletionTokens int `json:"max_completion_tokens"`
+			} `json:"top_provider"`
+		} `json:"data"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return defaultContext, defaultMaxTokens
+	}
+
+	for _, m := range result.Data {
+		if m.ID == modelID {
+			if m.ContextLength > 0 {
+				contextWindow = m.ContextLength
+			}
+			if m.TopProvider.MaxCompletionTokens > 0 {
+				maxOutputTokens = m.TopProvider.MaxCompletionTokens
+			} else {
+				// No limit specified, use default
+				maxOutputTokens = defaultMaxTokens
+			}
+			return contextWindow, maxOutputTokens
+		}
+	}
+
+	return defaultContext, defaultMaxTokens
+}
+
 // validateTelegramToken checks a Telegram bot token via the getMe API.
 func validateTelegramToken(token string) (string, error) {
 	resp, err := http.Get("https://api.telegram.org/bot" + token + "/getMe")
@@ -394,7 +455,15 @@ func onboard() {
 		cfg.Agents.Defaults.Model = customModel
 	}
 	cfg.Agents.Defaults.Provider = "openrouter"
-	cfg.Agents.Defaults.MaxTokens = 4096
+
+	// Query model context window from OpenRouter API if key is available
+	if apiKey != "" {
+		ctxWindow, maxTokens := fetchModelContext(apiKey, cfg.Agents.Defaults.Model)
+		cfg.Agents.Defaults.ContextWindow = ctxWindow
+		cfg.Agents.Defaults.MaxTokens = maxTokens
+		fmt.Printf("  Model context: %d tokens, max output: %d tokens\n", ctxWindow, maxTokens)
+	}
+
 	cfg.Agents.Defaults.MaxToolIterations = 10
 
 	// Step 3: Timezone

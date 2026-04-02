@@ -328,26 +328,25 @@ func (hs *HeartbeatService) createDefaultHeartbeatTemplate() {
 
 	defaultContent := `# Heartbeat Tasks
 
-Execute ALL tasks below every heartbeat cycle. Use shell commands for local data — do NOT waste API tokens on info available locally.
+Execute ALL tasks below every heartbeat cycle. Use the "exec" tool for local system commands — do NOT waste API tokens on information available locally.
 
-## 1. Time & Date (local — use shell)
-- Run: ` + "`date '+%A, %B %d %Y — %I:%M %p %Z'`" + `
-- Note any upcoming reminders from memory files
+## 1. Time & Date (local — use exec tool)
+- Run: ` + "`exec -- command='date \"+%A, %B %d %Y — %I:%M %p %Z\"'`" + `
+- Note any reminders from memory files
 
-## 2. Device Health (local — use shell)
-- Run: ` + "`free -m | grep Mem`" + ` — report available memory
-- Run: ` + "`uptime`" + ` — report uptime and load
-- If available memory < 5MB, warn the user immediately
+## 2. Device Health (local — use exec tool)
+- Run: ` + "`exec -- command='free -m | grep Mem'`" + `
+- Run: ` + "`exec -- command='uptime'`" + `
+- If available memory < 5MB, warn immediately
 
-## 3. Network (local — use shell)
-- Run: ` + "`ping -c 1 -W 2 8.8.8.8 > /dev/null 2>&1 && echo \"Online\" || echo \"OFFLINE\"`" + `
+## 3. Network (local — use exec tool)
+- Run: ` + "`exec -- command='ping -c 1 -W 2 8.8.8.8 > /dev/null 2>&1 && echo Online || echo OFFLINE'`" + `
 - If offline, alert the user
 
 ## Instructions
-- Use shell tool for ALL tasks above — they are local system checks
-- Keep responses brief — one line per task max
-- Only respond with HEARTBEAT_OK after ALL tasks are complete and nothing needs attention
-- If any task shows a problem, flag it clearly
+- Use the "exec" tool for ALL shell commands above
+- Keep responses brief — one line per task
+- Respond with HEARTBEAT_OK after ALL tasks complete with no issues
 
 ---
 

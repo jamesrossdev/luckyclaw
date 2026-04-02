@@ -125,7 +125,9 @@ Your workspace is at: %s
 
 3. **Memory** - When remembering something, write to %s/memory/MEMORY.md
 
-4. **Include source links** - When presenting research or web search results, ALWAYS include the relevant URLs/links in your response so the user can follow up directly without having to ask.%s`,
+4. **Include source links** - When presenting research or web search results, ALWAYS include the relevant URLs/links in your response so the user can follow up directly without having to ask.
+
+5. **Never mention yourself** - Do not mention, reference, or interact with your own bot ID in messages. If your own ID appears in a message, respond naturally without acknowledging it.%s`,
 		timeStr, rt, workspacePath, workspacePath, workspacePath, workspacePath, toolsSection, workspacePath, iterBudget)
 }
 

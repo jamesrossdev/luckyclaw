@@ -54,3 +54,18 @@ Items listed here are planned enhancements that are not yet scheduled for implem
 **Description**: Port `utf8.RuneCountInString` with 2.5 chars/token ratio from picoclaw upstream (vs our current `len` with 3 chars/token). More accurate for mixed-language content and CJK text.
 
 **Benefit**: Better context budget estimation, especially for non-English conversations.
+
+## Context Management
+
+### Pre-emptive Context Compression
+**Priority**: Medium
+**Description**: Before sending messages to the LLM, estimate the token count and proactively compress history if it exceeds the model's context window (minus a safety margin). Currently, compression only happens AFTER a 400 error from the API.
+
+**Implementation**:
+1. Add `EstimateTokens(messages []providers.Message) int` function using character count × ratio
+2. In `runAgentLoop`, before calling `provider.Chat()`, check: `if estimatedTokens > (contextWindow * 0.85)` then trigger compression
+3. Log the pre-emptive compression for debugging
+
+**Benefit**: Avoids wasted API calls and provides smoother user experience. Currently users see "Context window exceeded" message before compression kicks in.
+
+**Blocked by**: Nothing. Can be implemented independently.

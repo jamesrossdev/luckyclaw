@@ -5,13 +5,15 @@ import (
 	"fmt"
 )
 
-type SendCallback func(channel, chatID, content string) error
+type SendCallback func(channel, chatID, content, replyToStanzaID, replyToParticipant string) error
 
 type MessageTool struct {
-	sendCallback   SendCallback
-	defaultChannel string
-	defaultChatID  string
-	sentInRound    bool // Tracks whether a message was sent in the current processing round
+	sendCallback       SendCallback
+	defaultChannel     string
+	defaultChatID      string
+	replyToStanzaID    string
+	replyToParticipant string
+	sentInRound        bool // Tracks whether a message was sent in the current processing round
 }
 
 func NewMessageTool() *MessageTool {
@@ -53,6 +55,14 @@ func (t *MessageTool) SetContext(channel, chatID string) {
 	t.sentInRound = false // Reset send tracking for new processing round
 }
 
+func (t *MessageTool) SetReplyToStanzaID(stanzaID string) {
+	t.replyToStanzaID = stanzaID
+}
+
+func (t *MessageTool) SetReplyToParticipant(participant string) {
+	t.replyToParticipant = participant
+}
+
 // HasSentInRound returns true if the message tool sent a message during the current round.
 func (t *MessageTool) HasSentInRound() bool {
 	return t.sentInRound
@@ -86,7 +96,7 @@ func (t *MessageTool) Execute(ctx context.Context, args map[string]interface{}) 
 		return &ToolResult{ForLLM: "Message sending not configured", IsError: true}
 	}
 
-	if err := t.sendCallback(channel, chatID, content); err != nil {
+	if err := t.sendCallback(channel, chatID, content, t.replyToStanzaID, t.replyToParticipant); err != nil {
 		return &ToolResult{
 			ForLLM:  fmt.Sprintf("sending message: %v", err),
 			IsError: true,

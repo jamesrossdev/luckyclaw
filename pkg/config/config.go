@@ -231,7 +231,7 @@ func DefaultConfig() *Config {
 				RestrictToWorkspace: true,
 				Provider:            "openrouter",
 				Model:               "stepfun/step-3.5-flash:free",
-				MaxTokens:           4096,
+				MaxTokens:           16384,
 				ContextWindow:       256000,
 				Temperature:         0.7,
 				MaxToolIterations:   25,

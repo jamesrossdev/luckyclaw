@@ -26,7 +26,7 @@ LuckyClaw is a streamlined, self-contained AI assistant purpose-built for the [L
 - 🧠 **Memory-optimized** — Tuned specifically for 64MB RAM boards, not general-purpose servers
 - 📟 **SSH banner** — See gateway status and commands on every login
 - 🌍 **Timezone-aware** — Correct local time on the board, no `/usr/share/zoneinfo` needed
-- 📎 **File attachments** — Send files directly via Telegram
+- 📎 **File attachments** — Send files via Telegram, WhatsApp, or Discord
 - 🤙 **Conservative by design** — Fewer features, fewer surprises, fewer crashes
 
 > [!NOTE]
@@ -101,7 +101,7 @@ You'll see the LuckyClaw banner:
 | |__| |_| | (__|   <| |_| | |___| | (_| |\ V  V /
 |_____\__,_|\___|_|\_\\__, |\____|_|\__,_| \_/\_/
                       |___/
-  🦞 luckyclaw v0.2.0
+  🦞 luckyclaw v0.2.2
 
   Gateway: running (PID 1234, 15MB)
   Memory:  33MB / 55MB available
@@ -150,8 +150,9 @@ luckyclaw agent
 | ------------ | ------------------- | -------------------------- |
 | **Telegram** | ✅ Ready             | Token from @BotFather      |
 | **Discord**  | ✅ Ready             | Bot token + intents        |
-| **WhatsApp** | ✅ Native (Free)     | Use `luckyclaw onboard` to scan Native QR <br> *See [WhatsApp Business Guide](doc/WHATSAPP_BUSINESS.md) for SMB features* |
-| **Slack**    | 🚧 Test Channel      | —                       |
+| **WhatsApp** | ✅ Ready             | Use `luckyclaw onboard` to scan QR |
+
+Plus other channels inherited from upstream (LINE, QQ, DingTalk, Feishu, MaixCam).
 
 <details>
 <summary><b>Telegram Setup</b> (Recommended)</summary>
@@ -206,10 +207,14 @@ luckyclaw agent
 | `luckyclaw onboard`         | Interactive setup wizard        |
 | `luckyclaw status`          | System status (board, memory, gateway) |
 | `luckyclaw gateway`         | Start the AI gateway            |
+| `luckyclaw gateway -b`      | Start the AI gateway in background |
+| `luckyclaw stop`            | Stop the gateway                |
+| `luckyclaw restart`         | Restart the gateway             |
 | `luckyclaw agent -m "..."`  | Send a message directly         |
 | `luckyclaw agent`           | Interactive chat mode           |
 | `luckyclaw cron list`       | List scheduled reminders        |
 | `luckyclaw skills list`     | List installed skills           |
+| `luckyclaw install`         | Install as system service       |
 | `luckyclaw version`         | Show version info               |
 
 ---
@@ -229,10 +234,23 @@ Config: `~/.luckyclaw/config.json`
 | `groq`         | Fast inference + voice     | [console.groq.com](https://console.groq.com)           |
 | `ollama`       | Local models (no API key)  | [ollama.com](https://ollama.com)                       |
 
+### Default Configuration
+
+| Setting            | Default Value                  |
+|--------------------|-------------------------------|
+| Provider           | `openrouter`                 |
+| Model              | `stepfun/step-3.5-flash:free` |
+| Max Tokens         | `4096`                        |
+| Context Window     | `256000`                      |
+| Temperature        | `0.7`                         |
+| Max Tool Iterations| `25`                          |
+
 ### Workspace Layout
 
+On-device path: `/oem/.luckyclaw/workspace/`
+
 ```
-~/.luckyclaw/workspace/
+/oem/.luckyclaw/workspace/
 ├── sessions/          # Conversation history
 ├── memory/            # Long-term memory (MEMORY.md)
 ├── cron/              # Scheduled jobs
