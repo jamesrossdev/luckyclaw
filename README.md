@@ -29,7 +29,6 @@ LuckyClaw is a streamlined, self-contained AI assistant purpose-built for the [L
 - 📎 **File attachments** — Send files via Telegram, WhatsApp, or Discord
 - 🤙 **Conservative by design** — Fewer features, fewer surprises, fewer crashes
 
-> [!NOTE]
 > LuckyClaw is built on top of [PicoClaw](https://github.com/sipeed/picoclaw) by [Sipeed](https://sipeed.com). PicoClaw is the upstream project — LuckyClaw is the simpler, more opinionated fork optimized for Luckfox hardware and everyday users. We cherry-pick stability fixes and genuinely useful features from upstream; we don't try to keep pace with every new addition.
 
 ---
@@ -70,7 +69,6 @@ luckyclaw gateway -b
 
 \* *The Pico Pro (128MB RAM) and Pico Max (256MB RAM) share the same RV1106 SoC and firmware image.*
 
-> [!IMPORTANT]
 > LuckyClaw currently only supports these three board variants. Other Luckfox variants (Pico Mini, Pico Zero, etc.) are untested and may not work.
 
 ---
@@ -155,7 +153,7 @@ luckyclaw agent
 Plus other channels inherited from upstream (LINE, QQ, DingTalk, Feishu, MaixCam).
 
 <details>
-<summary><b>Telegram Setup</b> (Recommended)</summary>
+<summary><b>Telegram Setup</b></summary>
 
 1. Message `@BotFather` on Telegram → `/newbot` → copy the token
 2. Get your user ID from `@userinfobot`
@@ -172,6 +170,15 @@ Plus other channels inherited from upstream (LINE, QQ, DingTalk, Feishu, MaixCam
   }
 }
 ```
+
+</details>
+
+<details>
+<summary><b>WhatsApp Setup</b></summary>
+
+1. Run `luckyclaw onboard` and select WhatsApp
+2. Scan the QR code with your WhatsApp app
+3. For advanced features (Business Mode), see [WhatsApp Business Guide](docs/WHATSAPP_BUSINESS.md)
 
 </details>
 
@@ -195,6 +202,7 @@ Plus other channels inherited from upstream (LINE, QQ, DingTalk, Feishu, MaixCam
 ```
 
 4. Invite: OAuth2 → `bot` scope → `Send Messages` + `Read Message History`
+5. For advanced setup (moderator persona, sandbox), see [Discord Moderator Guide](docs/DISCORD_MODERATOR.md)
 
 </details>
 
@@ -221,7 +229,7 @@ Plus other channels inherited from upstream (LINE, QQ, DingTalk, Feishu, MaixCam
 
 ## ⚙️ Configuration
 
-Config: `~/.luckyclaw/config.json`
+Config: `/oem/.luckyclaw/config.json`
 
 ### Providers
 
@@ -240,9 +248,9 @@ Config: `~/.luckyclaw/config.json`
 |--------------------|-------------------------------|
 | Provider           | `openrouter`                 |
 | Model              | `stepfun/step-3.5-flash:free` |
-| Max Tokens         | `4096`                        |
-| Context Window     | `256000`                      |
-| Temperature        | `0.7`                         |
+| Max Tokens         | `16384`                       |
+| Context Window     | Model-specific (queried via API) |
+| Temperature        | `0.6`                         |
 | Max Tool Iterations| `25`                          |
 
 ### Workspace Layout
@@ -282,13 +290,13 @@ Ask the agent to set reminders naturally:
 - *"Remind me every 2 hours to drink water"*
 - *"Set an alarm for 9am daily"*
 
-Jobs are stored in `~/.luckyclaw/workspace/cron/` and persist across restarts.
+Jobs are stored in `/oem/.luckyclaw/workspace/cron/` and persist across restarts.
 
 ---
 
 ## 🔒 Security
 
-LuckyClaw runs in a sandboxed workspace by default. The agent can only access files within `~/.luckyclaw/workspace/`.
+LuckyClaw runs in a sandboxed workspace by default. The agent can only access files within `/oem/.luckyclaw/workspace/`.
 
 To allow system-wide access (use with caution):
 
@@ -306,7 +314,7 @@ To allow system-wide access (use with caution):
 
 ## 🛠️ Developer Guide
 
-For instructions on compiling from source, cross-compiling, and optimizing the Luckfox SDK root filesystem (including our automated `optimize-rootfs.patch`), please see the **[Developer Guide](doc/DEVELOPER_GUIDE.md)**!
+For instructions on compiling from source, cross-compiling, and optimizing the Luckfox SDK root filesystem (including our automated `optimize-rootfs.patch`), please see the **[Developer Guide](docs/DEVELOPER_GUIDE.md)**!
 
 ---
 

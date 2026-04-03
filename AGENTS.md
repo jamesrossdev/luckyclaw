@@ -86,7 +86,7 @@ A shallow clone of the upstream PicoClaw repo is kept at `picoclaw-latest/` (git
 
 ### 12. Log File Destinations & Workspace Paths
 - **Gateway log**: `/var/log/luckyclaw.log` (stdout/stderr from the init script). The init script uses an `sh -c "exec ..."` wrapper because BusyBox's `start-stop-daemon -b` redirects fds to `/dev/null` before shell redirects take effect.
-- **Heartbeat log**: `<workspace>/heartbeat.log` (written directly by the heartbeat service, not stdout).
+- **Heartbeat log**: `/oem/.luckyclaw/heartbeat.log` (outside workspace — prevents LLM from reading old error logs and wasting tokens).
 - **Runtime workspace**: `/oem/.luckyclaw/workspace/` — this is where the bot reads/writes data at runtime. `luckyclaw onboard` creates it by extracting the `workspace/` directory that is **embedded directly into the binary** via `go:embed` at compile time. `firmware/overlay/root/` is NOT involved in this — nothing reads `/root/.luckyclaw/` at runtime.
 
 ### 13. Firmware Overlay Structure

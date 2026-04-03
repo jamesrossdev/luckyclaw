@@ -77,20 +77,22 @@ func compressImage(data []byte) ([]byte, error) {
 // WhatsAppChannel implements the WhatsApp channel using whatsmeow (in-process, no external bridge).
 type WhatsAppChannel struct {
 	*channels.BaseChannel
-	config       config.WhatsAppConfig
-	storePath    string
-	client       *whatsmeow.Client
-	container    *sqlstore.Container
-	db           *sql.DB
-	mu           sync.Mutex
-	runCtx       context.Context
-	runCancel    context.CancelFunc
-	reconnectMu  sync.Mutex
-	reconnecting bool
-	stopping     atomic.Bool    // set once Stop begins; prevents new wg.Add calls
-	wg           sync.WaitGroup // tracks background goroutines (QR handler, reconnect)
-	rateLimiter  map[string][]time.Time
-	rateLimitMu  sync.Mutex
+	config            config.WhatsAppConfig
+	storePath         string
+	client            *whatsmeow.Client
+	container         *sqlstore.Container
+	db                *sql.DB
+	mu                sync.Mutex
+	runCtx            context.Context
+	runCancel         context.CancelFunc
+	reconnectMu       sync.Mutex
+	reconnecting      bool
+	stopping          atomic.Bool    // set once Stop begins; prevents new wg.Add calls
+	wg                sync.WaitGroup // tracks background goroutines (QR handler, reconnect)
+	rateLimiter       map[string][]time.Time
+	rateLimitMu       sync.Mutex
+	processedStanzas  sync.Map // stanzaID -> time.Time for deduplication
+	stanzaCleanupOnce sync.Once
 }
 
 // NewWhatsAppChannel creates a WhatsApp channel that uses whatsmeow for connection.
@@ -353,10 +355,53 @@ func (c *WhatsAppChannel) reconnectWithBackoff() {
 	}
 }
 
+func (c *WhatsAppChannel) isDuplicateStanza(stanzaID string) bool {
+	if stanzaID == "" {
+		return false
+	}
+	if val, ok := c.processedStanzas.Load(stanzaID); ok {
+		timestamp := val.(time.Time)
+		if time.Since(timestamp) < 60*time.Second {
+			return true
+		}
+	}
+	c.processedStanzas.Store(stanzaID, time.Now())
+	return false
+}
+
+func (c *WhatsAppChannel) startStanzaCleanup() {
+	c.stanzaCleanupOnce.Do(func() {
+		go func() {
+			ticker := time.NewTicker(5 * time.Minute)
+			for range ticker.C {
+				now := time.Now()
+				c.processedStanzas.Range(func(key, value interface{}) bool {
+					if timestamp, ok := value.(time.Time); ok {
+						if now.Sub(timestamp) > 5*time.Minute {
+							c.processedStanzas.Delete(key)
+						}
+					}
+					return true
+				})
+			}
+		}()
+	})
+}
+
 func (c *WhatsAppChannel) handleIncoming(evt *events.Message) {
 	if evt.Message == nil {
 		return
 	}
+
+	stanzaID := evt.Info.ID
+	if c.isDuplicateStanza(stanzaID) {
+		logger.DebugCF("whatsapp", "Skipping duplicate stanza", map[string]any{
+			"stanza_id": stanzaID,
+		})
+		return
+	}
+	c.startStanzaCleanup()
+
 	senderID := evt.Info.Sender.User
 	chatID := evt.Info.Chat.String()
 

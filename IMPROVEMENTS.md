@@ -69,3 +69,55 @@ Items listed here are planned enhancements that are not yet scheduled for implem
 **Benefit**: Avoids wasted API calls and provides smoother user experience. Currently users see "Context window exceeded" message before compression kicks in.
 
 **Blocked by**: Nothing. Can be implemented independently.
+
+## Skill System
+
+### Channel-Based Skill Filtering
+**Priority**: Medium
+**Description**: Filter skills by message origin channel to prevent cross-channel skill leakage. Currently, all skills are visible to the LLM regardless of which channel the message came from, causing the LLM to read Discord-specific moderation content when responding to WhatsApp users.
+
+**Implementation**:
+
+1. **Add `channels:` field to SKILL.md frontmatter (YAML)**:
+   ```yaml
+   ---
+   name: discord-mod
+   description: Server FAQ, channel directory, and rules
+   channels: [discord]
+   ---
+   ```
+   - `channels: [discord]` → only visible on Discord
+   - `channels: [whatsapp]` → only visible on WhatsApp
+   - No `channels:` field or `channels: [all]` → visible on all channels
+
+2. **Modify `SkillMetadata` struct** in `pkg/skills/loader.go`:
+   ```go
+   type SkillMetadata struct {
+       Name        string   `json:"name"`
+       Description string   `json:"description"`
+       Channels    []string `json:"channels"` // Optional: channels this skill applies to
+   }
+   ```
+
+3. **Modify `BuildSkillsSummary()`** in `pkg/skills/loader.go`:
+   - Accept `channel string` parameter
+   - Filter skills: `skill.Channels == nil || contains(skill.Channels, channel) || contains(skill.Channels, "all")`
+
+4. **Update `BuildSystemPrompt()`** in `pkg/agent/context.go`:
+   - Pass `channel` parameter to `BuildSkillsSummary(channel)`
+
+5. **Skill channel assignments** (initial):
+   - `discord-mod/SKILL.md` → `channels: [discord]`
+   - `whatsapp/SKILL.md` → `channels: [whatsapp]`
+   - `weather/SKILL.md` → omitempty (all channels)
+   - `summarize/SKILL.md` → omitempty (all channels)
+   - `hardware/SKILL.md` → omitempty (all channels)
+
+**Files affected**:
+- `workspace/skills/*/SKILL.md` — add `channels:` frontmatter
+- `pkg/skills/loader.go` — filter by channel
+- `pkg/agent/context.go` — pass channel to skills loader
+
+**Benefit**: Prevents LLM from reading Discord moderation rules when responding to WhatsApp users, and vice versa. Reduces irrelevant context in system prompt, saves tokens.
+
+**Blocked by**: Nothing. Can be implemented independently.

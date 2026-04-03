@@ -1280,12 +1280,13 @@ func gatewayCmd() {
 		fmt.Printf("Error starting channels: %v\n", err)
 	}
 
-	// Wire WhatsApp self-chat JID into the heartbeat service for alert delivery.
+	// Wire WhatsApp self-chat JID into the heartbeat service and agent loop for alert delivery.
 	// After StartAll, the WhatsApp client is connected and Store.ID is populated.
 	if waChannel != nil {
 		if selfJID := waChannel.GetSelfJID(); selfJID != "" {
 			heartbeatService.SetSelfChatJID(selfJID)
-			logger.InfoCF("whatsapp", "Heartbeat alerts will be delivered to self-chat", map[string]interface{}{"jid": selfJID})
+			agentLoop.SetSelfChatJID(selfJID)
+			logger.InfoCF("whatsapp", "Self-chat JID configured", map[string]interface{}{"jid": selfJID})
 		}
 	}
 

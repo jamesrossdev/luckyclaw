@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -171,16 +172,37 @@ func (hs *HeartbeatService) executeHeartbeat() {
 
 	logger.InfoC("heartbeat", "[AUDIT] executeHeartbeat: START")
 
-	prompt := hs.buildPrompt()
-	if prompt == "" {
-		logger.InfoC("heartbeat", "[AUDIT] executeHeartbeat: empty prompt, aborting")
-		hs.logInfo("No heartbeat prompt (HEARTBEAT.md empty or missing)")
-		return
-	}
-
 	if handler == nil {
 		logger.InfoC("heartbeat", "[AUDIT] executeHeartbeat: handler nil, aborting")
 		hs.logError("Heartbeat handler not configured")
+		return
+	}
+
+	localResult := hs.runLocalChecks()
+
+	hasCustomTasks := hs.hasCustomUserTasks()
+
+	var prompt string
+	if !localResult.allNormal {
+		prompt = fmt.Sprintf(`# Heartbeat Check - ALERT MODE
+
+Current time: %s
+
+CRITICAL: Local checks detected issues:
+%s
+
+You are a proactive AI assistant. Report these issues concisely.
+Do NOT run diagnostic tools - the issues are already detected.
+Focus on explaining the impact and any recommended actions.
+
+If these are the only issues, respond with HEARTBEAT_OK after listing them.
+`, time.Now().Format("2006-01-02 15:04:05"), strings.Join(localResult.alerts, "\n"))
+	} else if hasCustomTasks {
+		userPrompt := hs.buildPrompt()
+		prompt = hs.buildCustomTaskPrompt(userPrompt)
+	} else {
+		logger.InfoC("heartbeat", "[AUDIT] executeHeartbeat: all checks passed, no custom tasks")
+		hs.logInfo("Heartbeat OK - all systems normal, no custom tasks")
 		return
 	}
 
@@ -328,29 +350,26 @@ func (hs *HeartbeatService) createDefaultHeartbeatTemplate() {
 
 	defaultContent := `# Heartbeat Tasks
 
-Execute ALL tasks below every heartbeat cycle. Use the "exec" tool for local system commands — do NOT waste API tokens on information available locally.
+System health checks (disk, memory) run automatically before this prompt.
+Add your custom tasks below.
 
-## 1. Time & Date (local — use exec tool)
-- Run: ` + "`exec -- command='date \"+%A, %B %d %Y — %I:%M %p %Z\"'`" + `
-- Note any reminders from memory files
+## Example Custom Tasks
 
-## 2. Device Health (local — use exec tool)
-- Run: ` + "`exec -- command='free -m | grep Mem'`" + `
-- Run: ` + "`exec -- command='uptime'`" + `
-- If available memory < 5MB, warn immediately
-
-## 3. Network (local — use exec tool)
-- Run: ` + "`exec -- command='ping -c 1 -W 2 8.8.8.8 > /dev/null 2>&1 && echo Online || echo OFFLINE'`" + `
-- If offline, alert the user
+- Check RSS feeds for specific keywords
+- Summarize today's calendar events
+- Send a reminder if a specific condition is met
+- Check email for important messages
 
 ## Instructions
-- Use the "exec" tool for ALL shell commands above
-- Keep responses brief — one line per task
-- Respond with HEARTBEAT_OK after ALL tasks complete with no issues
+
+- List tasks that require the LLM to perform actions
+- Use available tools (exec, read_file, web search, etc.)
+- Keep tasks concise and specific
+- Respond with HEARTBEAT_OK if all tasks are completed successfully
 
 ---
 
-Add your heartbeat tasks below this line:
+Add your custom tasks below this line:
 `
 
 	if err := os.WriteFile(heartbeatPath, []byte(defaultContent), 0644); err != nil {
@@ -430,8 +449,13 @@ func (hs *HeartbeatService) logError(format string, args ...any) {
 }
 
 // log writes a message to the heartbeat log file, with stderr fallback
+// Log file is placed outside the workspace to prevent LLM from reading old logs
 func (hs *HeartbeatService) log(level, format string, args ...any) {
-	logFile := filepath.Join(hs.workspace, "heartbeat.log")
+	// Place log file alongside config: /oem/.luckyclaw/heartbeat.log
+	// This prevents the LLM from reading old heartbeat logs which waste tokens
+	// Strategy: replace "/workspace" suffix with "" to get config directory
+	workspaceSuffix := string(filepath.Separator) + "workspace"
+	logFile := strings.Replace(hs.workspace, workspaceSuffix, "", 1) + string(filepath.Separator) + "heartbeat.log"
 	message := fmt.Sprintf(format, args...)
 	timestamp := time.Now().Format("2006-01-02 15:04:05")
 	line := fmt.Sprintf("[%s] [%s] %s\n", timestamp, level, message)
@@ -456,4 +480,92 @@ func truncateForLog(s string, maxLen int) string {
 		return s
 	}
 	return s[:maxLen] + "..."
+}
+
+type localCheckResult struct {
+	allNormal bool
+	alerts    []string
+}
+
+func (hs *HeartbeatService) runLocalChecks() localCheckResult {
+	result := localCheckResult{allNormal: true}
+
+	diskUsage := getDiskUsage()
+	if diskUsage >= 95.0 {
+		result.allNormal = false
+		result.alerts = append(result.alerts, fmt.Sprintf("Disk usage critical: %.1f%%", diskUsage))
+	}
+
+	memFree := getFreeMemoryMB()
+	if memFree >= 0 && memFree < 5 {
+		result.allNormal = false
+		result.alerts = append(result.alerts, fmt.Sprintf("Low memory: %d MB free", memFree))
+	}
+
+	return result
+}
+
+func getFreeMemoryMB() int {
+	data, err := os.ReadFile("/proc/meminfo")
+	if err != nil {
+		return -1
+	}
+
+	for _, line := range strings.Split(string(data), "\n") {
+		if strings.HasPrefix(line, "MemAvailable:") {
+			fields := strings.Fields(line)
+			if len(fields) >= 2 {
+				if kb, err := strconv.Atoi(fields[1]); err == nil {
+					return kb / 1024
+				}
+			}
+		}
+	}
+	return -1
+}
+
+func (hs *HeartbeatService) buildCustomTaskPrompt(userPrompt string) string {
+	return fmt.Sprintf(`# Heartbeat Check - Custom Tasks
+
+Current time: %s
+System Disk Status: %.1f%% (Normal)
+Memory: Sufficient
+
+All local system checks passed. Focus ONLY on custom user tasks below.
+Do NOT run disk/memory diagnostic tools - they already passed.
+
+If no tasks require execution, respond with HEARTBEAT_OK.
+
+%s
+`, time.Now().Format("2006-01-02 15:04:05"), getDiskUsage(), userPrompt)
+}
+
+func (hs *HeartbeatService) hasCustomUserTasks() bool {
+	heartbeatPath := filepath.Join(hs.workspace, "HEARTBEAT.md")
+	data, err := os.ReadFile(heartbeatPath)
+	if err != nil {
+		return false
+	}
+
+	content := string(data)
+	if strings.TrimSpace(content) == "" {
+		return false
+	}
+
+	parts := strings.SplitN(content, "---\n\n", 2)
+	if len(parts) < 2 {
+		return true
+	}
+
+	afterSeparator := strings.TrimSpace(parts[1])
+	lines := strings.Split(afterSeparator, "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		return true
+	}
+
+	return false
 }

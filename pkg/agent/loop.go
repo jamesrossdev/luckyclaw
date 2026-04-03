@@ -46,6 +46,7 @@ type AgentLoop struct {
 	summarizing    sync.Map // Tracks which sessions are currently being summarized
 	channelManager *channels.Manager
 	config         *config.Config
+	selfChatJID    atomic.Value // WhatsApp self-chat JID for error alerts
 }
 
 // processOptions configures how a message is processed
@@ -240,7 +241,25 @@ func (al *AgentLoop) Run(ctx context.Context) error {
 
 			response, err := al.processMessage(ctx, msg)
 			if err != nil {
-				response = fmt.Sprintf("Error processing message: %v", err)
+				logger.ErrorCF("agent", "Message processing failed", map[string]interface{}{
+					"error":   err.Error(),
+					"channel": msg.Channel,
+					"chat_id": msg.ChatID,
+				})
+
+				response = "Looks like something went wrong. We've been notified and will investigate."
+
+				if selfJID := al.GetSelfChatJID(); selfJID != "" {
+					go func() {
+						alertMsg := fmt.Sprintf("Error Alert\n\nChannel: %s\nUser: %s\nTime: %s\n\nError:\n%v",
+							msg.Channel, msg.ChatID, time.Now().Format("2006-01-02 15:04:05"), err)
+						al.bus.PublishOutbound(bus.OutboundMessage{
+							Channel: "whatsapp",
+							ChatID:  selfJID,
+							Content: alertMsg,
+						})
+					}()
+				}
 			}
 
 			if response != "" {
@@ -274,6 +293,17 @@ func (al *AgentLoop) Run(ctx context.Context) error {
 
 func (al *AgentLoop) Stop() {
 	al.running.Store(false)
+}
+
+func (al *AgentLoop) SetSelfChatJID(jid string) {
+	al.selfChatJID.Store(jid)
+}
+
+func (al *AgentLoop) GetSelfChatJID() string {
+	if val, ok := al.selfChatJID.Load().(string); ok {
+		return val
+	}
+	return ""
 }
 
 func (al *AgentLoop) RegisterTool(tool tools.Tool) {
@@ -628,9 +658,27 @@ func (al *AgentLoop) runLLMIteration(ctx context.Context, messages []providers.M
 			}
 
 			errMsg := strings.ToLower(err.Error())
-			// Check for context window errors (provider specific, but usually contain "token" or "invalid")
-			isContextError := strings.Contains(errMsg, "token") ||
-				strings.Contains(errMsg, "context") ||
+
+			isPaymentError := strings.Contains(errMsg, "402") ||
+				strings.Contains(errMsg, "401") ||
+				strings.Contains(errMsg, "403") ||
+				strings.Contains(errMsg, "payment") ||
+				strings.Contains(errMsg, "credits") ||
+				strings.Contains(errMsg, "insufficient") ||
+				strings.Contains(errMsg, "unauthorized") ||
+				strings.Contains(errMsg, "forbidden")
+
+			if isPaymentError {
+				logger.ErrorCF("agent", "Payment/auth error - not retrying", map[string]interface{}{
+					"error": err.Error(),
+					"retry": retry,
+				})
+				return "", iteration, fmt.Errorf("API payment/auth error: %w", err)
+			}
+
+			isContextError := strings.Contains(errMsg, "context") ||
+				strings.Contains(errMsg, "context_length") ||
+				strings.Contains(errMsg, "max_context") ||
 				strings.Contains(errMsg, "invalidparameter") ||
 				strings.Contains(errMsg, "length")
 
