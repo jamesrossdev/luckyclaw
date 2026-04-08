@@ -274,9 +274,11 @@ func (al *AgentLoop) Run(ctx context.Context) error {
 
 				if !alreadySent {
 					outMsg := bus.OutboundMessage{
-						Channel: msg.Channel,
-						ChatID:  msg.ChatID,
-						Content: response,
+						Channel:            msg.Channel,
+						ChatID:             msg.ChatID,
+						Content:            response,
+						ReplyToStanzaID:    msg.StanzaID,
+						ReplyToParticipant: msg.ReplyToParticipant,
 					}
 					// For Discord messages, reply-with-quote using the triggering message ID
 					if msg.Channel == "discord" && msg.Metadata != nil {

@@ -109,8 +109,19 @@ LuckyClaw is **not** trying to be PicoClaw or nanobot. It is PicoClaw's simpler,
 When in doubt, ask: *"Would a normal person on a $10 board benefit from this?"* If the answer is no, leave it upstream.
 
 ### 16. Load Average Metric Inaccuracy
-The Linux load average on Luckfox Pico (RV1103) is **not an accurate measure of CPU saturation**. It often sits at ~10.0 even when the device is 99% idle. This is because ~20 RV1103-specific kernel threads (ISP, NPU, Video) frequently enter uninterruptible sleep (D-state), which Linux counts towards the load average. **Fix**: Use `top` or `mpstat` to verify actual idle percentage; do not panic over high load averages. This requires deeper investigation at a later date.
- 
+The Linux load average on Luckfox Pico (RV1103) is **not an accurate measure of CPU saturation**. It often sits at ~10.0 even when the device is 99% idle. This is because ~20 RV1103-specific kernel threads (ISP, NPU, Video) frequently enter uninterruptible sleep (D-state), which Linux counts towards the load average. **Fix**: Use `top` or `mpstat` to verify actual idle percentage; do not panic over high load averages. See Lesson 17 for details on D-state threads.
+
+### 17. D-State Threads from Camera/NPU Modules (Accepted)
+The high load average (~10-11) is caused by camera/NPU kernel threads in D-state: `vcodec_thread_0`, `rknpu_power_off`, `rkisp-vir0`, `vmcu`. These are loaded by `/oem/usr/ko/insmod_ko.sh` during boot and wait for non-existent camera hardware. **Decision**: Accept the cosmetic high load average. CPU idle remains ~98%+. Use `top` to verify actual idle percentage. Per Lesson 16, load average is not an accurate measure of CPU saturation on Luckfox boards.
+
+### 18. Dynamic GOMEMLIMIT per Board Variant
+Different boards have different RAM amounts:
+- Pico Plus (64MB DDR2): 24MiB GOMEMLIMIT (prevents GC spin)
+- Pico Pro (128MB DDR3): 48MiB GOMEMLIMIT
+- Pico Max (256MB DDR3): 96MiB GOMEMLIMIT
+- Unknown/Mini boards: 50% of total RAM
+
+**Fix**: S99luckyclaw detects board model from `/proc/device-tree/model` and sets appropriate GOMEMLIMIT.
 
 ## Build & Deploy
 
@@ -222,10 +233,8 @@ A distributable `.img` bundles the ARM binary (with `workspace/` embedded) + the
 make build-arm
 # Output: build/luckyclaw-linux-arm
 
-# 2. Copy binary into the SDK overlay (untracked — do this every time before building image)
-cp build/luckyclaw-linux-arm \
-  luckfox-pico-sdk/project/cfg/BoardConfig_IPC/overlay/luckyclaw-overlay/usr/bin/luckyclaw
-chmod +x luckfox-pico-sdk/project/cfg/BoardConfig_IPC/overlay/luckyclaw-overlay/usr/bin/luckyclaw
+# 2. Sync overlay to SDK (binary + init scripts + configs)
+./scripts/sync-overlay.sh
 
 # 3. Build the firmware image
 cd luckfox-pico-sdk && ./build.sh
@@ -235,14 +244,24 @@ cd luckfox-pico-sdk && ./build.sh
 # Rename for distribution: luckyclaw-luckfox_pico_plus_rv1103-vX.Y.Z.img
 ```
 
-> **Note:** The SDK overlay `etc/` is kept in sync with `firmware/overlay/etc/` in the repo. If you modify the init script or SSH banner, copy the changes to both locations before building.
-
 > **What's in the image:** `update.img` = kernel + rootfs (containing `/usr/bin/luckyclaw` with embedded workspace) + oem partition. When a user runs `luckyclaw onboard` after flashing, the embedded workspace is extracted to `/oem/.luckyclaw/workspace/`.
 
 ### SDK Overlay Sync
-The SDK overlay `etc/` must stay in sync with the repo:
+
+Use the sync script to keep the SDK overlay in sync with the repo:
+
+```bash
+./scripts/sync-overlay.sh
+```
+
+This syncs:
+- `firmware/overlay/etc/` → SDK overlay (init scripts, configs)
+- `build/luckyclaw-linux-arm` → SDK overlay binary
+- Adds `luckyclaw-overlay` to BoardConfigs for Plus and Pro/Max variants
+
 - `firmware/overlay/etc/` — canonical, tracked in git
-- `luckfox-pico-sdk/project/cfg/BoardConfig_IPC/overlay/luckyclaw-overlay/etc/` — SDK copy, NOT tracked in git
+- `luckfox-pico-sdk/project/cfg/BoardConfig_IPC/overlay/luckyclaw-overlay/` — SDK overlay, NOT tracked in git
+- `scripts/sync-overlay.sh` — sync automation script
 
 ## File Map
 
@@ -254,5 +273,6 @@ The SDK overlay `etc/` must stay in sync with the repo:
 | `pkg/config/config.go` | Config structure and defaults |
 | `firmware/overlay/etc/profile.d/luckyclaw-banner.sh` | SSH login banner |
 | `firmware/overlay/etc/init.d/S99luckyclaw` | Init script (auto-start) |
+| `scripts/sync-overlay.sh` | Sync overlay to SDK for building |
 | `CULLED.md` | What changed from PicoClaw and why |
 | `workspace/` | Embedded workspace templates |

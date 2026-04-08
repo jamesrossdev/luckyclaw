@@ -714,6 +714,29 @@ func (c *WhatsAppChannel) handleIncoming(evt *events.Message) {
 			}
 		}
 
+		// Debug: Log full ContextInfo for quoted messages
+		if ctxInfo.GetStanzaID() != "" {
+			quotedMsgType := ""
+			if ctxInfo.QuotedMessage != nil {
+				switch {
+				case ctxInfo.QuotedMessage.Conversation != nil:
+					quotedMsgType = "Conversation"
+				case ctxInfo.QuotedMessage.ExtendedTextMessage != nil:
+					quotedMsgType = "ExtendedTextMessage"
+				case ctxInfo.QuotedMessage.ImageMessage != nil:
+					quotedMsgType = "ImageMessage"
+				default:
+					quotedMsgType = "other"
+				}
+			}
+			logger.InfoCF("whatsapp", "[DEBUG] Incoming ContextInfo", map[string]any{
+				"stanza_id":       ctxInfo.GetStanzaID(),
+				"participant":     ctxInfo.GetParticipant(),
+				"remote_jid":      ctxInfo.GetRemoteJID(),
+				"quoted_msg_type": quotedMsgType,
+			})
+		}
+
 		// Optional debug log
 		if isGroup {
 			logger.InfoCF("whatsapp", "[DEBUG] Mention Tracking", map[string]any{
@@ -831,27 +854,28 @@ func (c *WhatsAppChannel) Send(ctx context.Context, msg bus.OutboundMessage) err
 		}
 	}
 
-	// Use ExtendedTextMessage with ContextInfo for threading when:
-	// - Business mode is enabled (DMs need context for multi-question customers), OR
-	// - It's a group chat (always quote for group context)
-	isGroup := strings.HasSuffix(to.String(), "@g.us")
-	shouldQuote := msg.ReplyToStanzaID != "" && (c.config.BusinessMode || isGroup)
 	var waMsg *waE2E.Message
-	if shouldQuote {
+	if msg.ReplyToStanzaID != "" {
+		isGroup := strings.HasSuffix(msg.ChatID, "@g.us")
+		contextInfo := &waE2E.ContextInfo{
+			StanzaID:    proto.String(msg.ReplyToStanzaID),
+			Participant: proto.String(msg.ReplyToParticipant),
+		}
+		if isGroup {
+			contextInfo.RemoteJID = proto.String(msg.ChatID)
+		}
 		waMsg = &waE2E.Message{
 			ExtendedTextMessage: &waE2E.ExtendedTextMessage{
-				Text: proto.String(msg.Content),
-				ContextInfo: &waE2E.ContextInfo{
-					StanzaID:    proto.String(msg.ReplyToStanzaID),
-					Participant: proto.String(msg.ReplyToParticipant),
-				},
+				Text:        proto.String(msg.Content),
+				ContextInfo: contextInfo,
 			},
 		}
-		logger.InfoCF("whatsapp", "Sending ExtendedTextMessage", map[string]any{
+		logger.InfoCF("whatsapp", "Sending quoted reply", map[string]any{
 			"to":                        to.String(),
 			"text_length":               len(msg.Content),
 			"context_stanza_id":         msg.ReplyToStanzaID,
 			"context_participant":       msg.ReplyToParticipant,
+			"is_group":                  isGroup,
 			"has_extended_text_message": waMsg.ExtendedTextMessage != nil,
 		})
 	} else {

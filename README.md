@@ -90,6 +90,27 @@ ssh root@<IP>
 > [!TIP]
 > The device IP depends on your network. Connect the board via USB-C or Ethernet and check your router's DHCP leases, or use `arp -a | grep luckfox` to find it.
 
+### Setting a Static IP
+
+By default, the board obtains an IP address via DHCP. To set a static IP:
+
+```bash
+# Edit network interfaces
+nano /etc/network/interfaces
+
+# Replace dhcp with static configuration:
+auto eth0
+iface eth0 inet static
+    address 192.168.1.100
+    netmask 255.255.255.0
+    gateway 192.168.1.1
+
+# Apply changes
+/etc/init.d/S40network restart
+```
+
+For persistent configuration across reboots, configure DHCP reservation on your router using the board's MAC address.
+
 You'll see the LuckyClaw banner:
 
 ```

@@ -56,7 +56,7 @@ import (
 var embeddedFiles embed.FS
 
 var (
-	version   = "v0.2.2-rc41"
+	version   = "v0.2.2"
 	gitCommit string
 	buildTime string
 	goVersion string
@@ -94,6 +94,15 @@ func printVersion() {
 	if goVer != "" {
 		fmt.Printf("  Go: %s\n", goVer)
 	}
+}
+
+func showBanner() {
+	cmd := exec.Command("/bin/sh", "/etc/profile.d/luckyclaw-banner.sh")
+	output, err := cmd.Output()
+	if err != nil {
+		return
+	}
+	fmt.Print(string(output))
 }
 
 func copyDirectory(src, dst string) error {
@@ -375,13 +384,35 @@ func validateTelegramToken(token string) (string, error) {
 	return result.Result.Username, nil
 }
 
-// detectBoardModel reads the device tree model string.
+// detectBoardModel returns board name based on MemTotal (stable, ignores device tree quirks).
 func detectBoardModel() string {
-	data, err := os.ReadFile("/proc/device-tree/model")
+	data, err := os.ReadFile("/proc/meminfo")
 	if err != nil {
-		return ""
+		return "Unknown"
 	}
-	return strings.TrimRight(string(data), "\x00\n")
+	lines := strings.Split(string(data), "\n")
+	var memTotalKB int
+	for _, line := range lines {
+		if strings.HasPrefix(line, "MemTotal:") {
+			fields := strings.Fields(line)
+			if len(fields) >= 2 {
+				memTotalKB, _ = strconv.Atoi(fields[1])
+			}
+			break
+		}
+	}
+	memTotalMB := memTotalKB / 1024
+
+	// MemTotal-based detection
+	// Pico Plus: ≤ 60 MB  → "Pico Plus"
+	// Pico Pro:  61-200 MB → "Pico Pro"
+	// Pico Max:  > 200 MB  → "Pico Max"
+	if memTotalMB > 200 {
+		return "Pico Max"
+	} else if memTotalMB > 60 {
+		return "Pico Pro"
+	}
+	return "Pico Plus"
 }
 
 func onboard() {
@@ -597,7 +628,7 @@ func onboard() {
 
 				var pairPhone string
 				if linkChoice != "2" {
-					pairPhone = promptLine("  Enter your phone number with country code (e.g. 12025551234): ")
+					pairPhone = promptLine("  Bot's WhatsApp number (with country code, e.g. 12025551234): ")
 					pairPhone = strings.ReplaceAll(pairPhone, " ", "")
 					pairPhone = strings.ReplaceAll(pairPhone, "-", "")
 					pairPhone = strings.ReplaceAll(pairPhone, "+", "")
@@ -609,15 +640,18 @@ func onboard() {
 
 				if err != nil {
 					fmt.Printf("  ⚠ WhatsApp Setup failed: %v\n", err)
-					cfg.Channels.WhatsApp.Enabled = false
+					fmt.Println("  ✓ WhatsApp enabled (not linked - device may be offline)")
+					cfg.Channels.WhatsApp.Enabled = true
+					cfg.Channels.WhatsApp.AllowFrom = nil
 				} else if expectedCode != "" && lid != "" {
 					fmt.Printf("  ✓ Success! Number authorized (Local ID linked).\n")
+					cfg.Channels.WhatsApp.Enabled = true
 					cfg.Channels.WhatsApp.AllowFrom = config.FlexibleStringSlice{lid}
 				} else {
+					fmt.Println("  ✓ WhatsApp enabled")
+					cfg.Channels.WhatsApp.Enabled = true
 					cfg.Channels.WhatsApp.AllowFrom = nil
 				}
-
-				fmt.Println("  ✓ WhatsApp enabled")
 			}
 		default:
 			fmt.Println("  Invalid choice, please try again.")
@@ -648,25 +682,17 @@ func onboard() {
 
 	fmt.Printf("  Workspace ready: %s ✓\n", workspace)
 
-	// Start gateway?
+	// Start gateway via init script (ensures proper env vars: GOMEMLIMIT, GOGC, TZ)
 	fmt.Println()
-	if promptYN("  Start LuckyClaw gateway now?") {
+	fmt.Println("  Starting gateway via init script...")
+	cmd := exec.Command("/etc/init.d/S99luckyclaw", "start")
+	if err := cmd.Run(); err != nil {
+		fmt.Printf("  Warning: init script failed: %v\n", err)
+		fmt.Println("  Starting gateway directly...")
 		gatewayStartBackground()
 	}
-
-	fmt.Println()
-	fmt.Println("  ╔══════════════════════════════════════╗")
-	fmt.Println("  ║  🦞 LuckyClaw is ready!              ║")
-	fmt.Println("  ╚══════════════════════════════════════╝")
-	fmt.Println()
-	fmt.Println("  Commands:")
-	fmt.Println("    luckyclaw status     — Check system status")
-	fmt.Println("    luckyclaw gateway    — Start the gateway")
-	fmt.Println("    luckyclaw gateway -b — Start in background")
-	fmt.Println("    luckyclaw stop       — Stop the gateway")
-	fmt.Println("    luckyclaw restart    — Restart the gateway")
-	fmt.Println("    luckyclaw help       — View more commands")
-	fmt.Println()
+	time.Sleep(2 * time.Second)
+	showBanner()
 }
 
 // stopCmd stops the running gateway process.
