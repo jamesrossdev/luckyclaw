@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"math/rand"
 	"net/http"
 	"os"
 	"os/exec"
@@ -43,6 +44,11 @@ import (
 	"github.com/jamesrossdev/luckyclaw/pkg/state"
 	"github.com/jamesrossdev/luckyclaw/pkg/tools"
 	"github.com/jamesrossdev/luckyclaw/pkg/voice"
+
+	"github.com/jamesrossdev/luckyclaw/firmware"
+
+	// Native WhatsApp
+	"github.com/jamesrossdev/luckyclaw/pkg/channels/whatsapp"
 )
 
 //go:generate cp -r ../../workspace .
@@ -50,7 +56,7 @@ import (
 var embeddedFiles embed.FS
 
 var (
-	version   = "v0.2.1"
+	version   = "v0.2.2"
 	gitCommit string
 	buildTime string
 	goVersion string
@@ -88,6 +94,15 @@ func printVersion() {
 	if goVer != "" {
 		fmt.Printf("  Go: %s\n", goVer)
 	}
+}
+
+func showBanner() {
+	cmd := exec.Command("/bin/sh", "/etc/profile.d/luckyclaw-banner.sh")
+	output, err := cmd.Output()
+	if err != nil {
+		return
+	}
+	fmt.Print(string(output))
 }
 
 func copyDirectory(src, dst string) error {
@@ -158,6 +173,8 @@ func main() {
 		stopCmd()
 	case "restart":
 		restartCmd()
+	case "install":
+		installCmd()
 	case "status":
 		statusCmd()
 	case "migrate":
@@ -238,6 +255,7 @@ func printHelp() {
 	fmt.Println("  gateway       Start luckyclaw gateway (-b for background)")
 	fmt.Println("  stop          Stop running gateway")
 	fmt.Println("  restart       Restart gateway (stop + start in background)")
+	fmt.Println("  install       Install init script and SSH banner to system")
 	fmt.Println("  status        Show luckyclaw status")
 	fmt.Println("  cron          Manage scheduled tasks")
 	fmt.Println("  auth          Manage authentication (login, logout, status)")
@@ -284,6 +302,67 @@ func validateOpenRouterKey(apiKey string) error {
 	return nil
 }
 
+// fetchModelContext queries OpenRouter API to get the model's context window and max output tokens.
+// Returns defaults if the query fails.
+func fetchModelContext(apiKey, modelID string) (contextWindow, maxOutputTokens int) {
+	const (
+		defaultContext   = 256000
+		defaultMaxTokens = 16384
+	)
+
+	contextWindow = defaultContext
+	maxOutputTokens = defaultMaxTokens
+
+	url := "https://openrouter.ai/api/v1/models"
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return defaultContext, defaultMaxTokens
+	}
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+
+	client := &http.Client{Timeout: 15 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return defaultContext, defaultMaxTokens
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		return defaultContext, defaultMaxTokens
+	}
+
+	var result struct {
+		Data []struct {
+			ID            string `json:"id"`
+			ContextLength int    `json:"context_length"`
+			TopProvider   struct {
+				MaxCompletionTokens int `json:"max_completion_tokens"`
+			} `json:"top_provider"`
+		} `json:"data"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return defaultContext, defaultMaxTokens
+	}
+
+	for _, m := range result.Data {
+		if m.ID == modelID {
+			if m.ContextLength > 0 {
+				contextWindow = m.ContextLength
+			}
+			if m.TopProvider.MaxCompletionTokens > 0 {
+				maxOutputTokens = m.TopProvider.MaxCompletionTokens
+			} else {
+				// No limit specified, use default
+				maxOutputTokens = defaultMaxTokens
+			}
+			return contextWindow, maxOutputTokens
+		}
+	}
+
+	return defaultContext, defaultMaxTokens
+}
+
 // validateTelegramToken checks a Telegram bot token via the getMe API.
 func validateTelegramToken(token string) (string, error) {
 	resp, err := http.Get("https://api.telegram.org/bot" + token + "/getMe")
@@ -305,16 +384,39 @@ func validateTelegramToken(token string) (string, error) {
 	return result.Result.Username, nil
 }
 
-// detectBoardModel reads the device tree model string.
+// detectBoardModel returns board name based on MemTotal (stable, ignores device tree quirks).
 func detectBoardModel() string {
-	data, err := os.ReadFile("/proc/device-tree/model")
+	data, err := os.ReadFile("/proc/meminfo")
 	if err != nil {
-		return ""
+		return "Unknown"
 	}
-	return strings.TrimRight(string(data), "\x00\n")
+	lines := strings.Split(string(data), "\n")
+	var memTotalKB int
+	for _, line := range lines {
+		if strings.HasPrefix(line, "MemTotal:") {
+			fields := strings.Fields(line)
+			if len(fields) >= 2 {
+				memTotalKB, _ = strconv.Atoi(fields[1])
+			}
+			break
+		}
+	}
+	memTotalMB := memTotalKB / 1024
+
+	// MemTotal-based detection
+	// Pico Plus: ≤ 60 MB  → "Pico Plus"
+	// Pico Pro:  61-200 MB → "Pico Pro"
+	// Pico Max:  > 200 MB  → "Pico Max"
+	if memTotalMB > 200 {
+		return "Pico Max"
+	} else if memTotalMB > 60 {
+		return "Pico Pro"
+	}
+	return "Pico Plus"
 }
 
 func onboard() {
+	stopCmd()
 	configPath := getConfigPath()
 
 	fmt.Println()
@@ -384,7 +486,15 @@ func onboard() {
 		cfg.Agents.Defaults.Model = customModel
 	}
 	cfg.Agents.Defaults.Provider = "openrouter"
-	cfg.Agents.Defaults.MaxTokens = 4096
+
+	// Query model context window from OpenRouter API if key is available
+	if apiKey != "" {
+		ctxWindow, maxTokens := fetchModelContext(apiKey, cfg.Agents.Defaults.Model)
+		cfg.Agents.Defaults.ContextWindow = ctxWindow
+		cfg.Agents.Defaults.MaxTokens = maxTokens
+		fmt.Printf("  Model context: %d tokens, max output: %d tokens\n", ctxWindow, maxTokens)
+	}
+
 	cfg.Agents.Defaults.MaxToolIterations = 10
 
 	// Step 3: Timezone
@@ -424,52 +534,129 @@ func onboard() {
 	fmt.Println()
 	fmt.Println("  Step 4: Messaging Channels")
 	fmt.Println("  ──────────────────────────")
-	fmt.Println("  Set up one or both chat channels. You can always configure these later")
-	fmt.Println("  by editing config.json or re-running 'luckyclaw onboard'.")
+	fmt.Println("  Set up your chat channels. You can enable multiple platforms.")
 	fmt.Println()
 
-	// Telegram
-	if promptYN("  Set up Telegram?") {
+	for {
+		fmt.Println("  Select a platform to configure:")
+		fmt.Println("  1. Telegram")
+		fmt.Println("  2. Discord")
+		fmt.Println("  3. WhatsApp (Native QR pairing)")
+		fmt.Println("  4. Next Step (Skip/Proceed)")
 		fmt.Println()
-		fmt.Println("  Create a bot via @BotFather on Telegram, then paste the token below.")
-		tgToken := promptLine("  Telegram bot token: ")
-		if tgToken != "" {
-			fmt.Print("  Validating... ")
-			username, err := validateTelegramToken(tgToken)
-			if err != nil {
-				fmt.Printf("⚠ %v\n", err)
-				fmt.Println("  (Token saved anyway — check it later)")
-			} else {
-				fmt.Printf("✓ @%s\n", username)
-			}
 
-			cfg.Channels.Telegram.Enabled = true
-			cfg.Channels.Telegram.Token = tgToken
-
-			tgUserID := promptLine("  Your Telegram user ID (optional, from @userinfobot): ")
-			if tgUserID != "" {
-				cfg.Channels.Telegram.AllowFrom = config.FlexibleStringSlice{tgUserID}
-			}
+		choice := promptLine("  Choice (1-4): ")
+		if choice == "4" || choice == "" {
+			break
 		}
-	}
 
-	// Discord
-	fmt.Println()
-	if promptYN("  Set up Discord?") {
-		fmt.Println()
-		fmt.Println("  Create a bot at https://discord.com/developers/applications")
-		fmt.Println("  Enable MESSAGE CONTENT INTENT in Bot settings, then paste the token.")
-		dcToken := promptLine("  Discord bot token: ")
-		if dcToken != "" {
-			cfg.Channels.Discord.Enabled = true
-			cfg.Channels.Discord.Token = dcToken
+		switch choice {
+		case "1":
+			fmt.Println("\n  [Telegram Setup]")
+			fmt.Println("  Create a bot via @BotFather on Telegram, then paste the token below.")
+			tgToken := promptLine("  Telegram bot token: ")
+			if tgToken != "" {
+				fmt.Print("  Validating... ")
+				username, err := validateTelegramToken(tgToken)
+				if err != nil {
+					fmt.Printf("⚠ %v\n", err)
+					fmt.Println("  (Token saved anyway — check it later)")
+				} else {
+					fmt.Printf("✓ @%s\n", username)
+				}
 
-			dcUserID := promptLine("  Your Discord user ID (optional): ")
-			if dcUserID != "" {
-				cfg.Channels.Discord.AllowFrom = config.FlexibleStringSlice{dcUserID}
+				cfg.Channels.Telegram.Enabled = true
+				cfg.Channels.Telegram.Token = tgToken
+
+				tgUserID := promptLine("  Your Telegram user ID (optional, from @userinfobot): ")
+				if tgUserID != "" {
+					cfg.Channels.Telegram.AllowFrom = config.FlexibleStringSlice{tgUserID}
+				}
+				fmt.Println("  ✓ Telegram configured")
 			}
-			fmt.Println("  ✓ Discord configured")
+		case "2":
+			fmt.Println("\n  [Discord Setup]")
+			fmt.Println("  Create a bot at https://discord.com/developers/applications")
+			fmt.Println("  Enable MESSAGE CONTENT INTENT in Bot settings, then paste the token.")
+			dcToken := promptLine("  Discord bot token: ")
+			if dcToken != "" {
+				cfg.Channels.Discord.Enabled = true
+				cfg.Channels.Discord.Token = dcToken
+
+				dcUserID := promptLine("  Your Discord user ID (optional): ")
+				if dcUserID != "" {
+					cfg.Channels.Discord.AllowFrom = config.FlexibleStringSlice{dcUserID}
+				}
+				fmt.Println("  ✓ Discord configured")
+			}
+		case "3":
+			fmt.Println("\n  [WhatsApp Setup]")
+			fmt.Println("  This will use native WhatsApp Web pairing.")
+			if promptYN("  Enable WhatsApp native channel?") {
+				cfg.Channels.WhatsApp.Enabled = true
+				cfg.Channels.WhatsApp.SessionPath = filepath.Join(cfg.WorkspacePath(), "whatsapp")
+
+				// Check for existing session and offer reset
+				dbPath := filepath.Join(cfg.Channels.WhatsApp.SessionPath, "store.db")
+				if _, err := os.Stat(dbPath); err == nil {
+					fmt.Println("\n  ⚠️  Existing WhatsApp session found.")
+					if promptYN("  Would you like to RESET and pair a NEW number?") {
+						fmt.Print("  Wiping existing session... ")
+						os.RemoveAll(cfg.Channels.WhatsApp.SessionPath)
+						fmt.Println("✓")
+					} else {
+						fmt.Println("  Keeping existing session. Skipping pairing.")
+						continue
+					}
+				}
+
+				waUserID := promptLine("  Your WhatsApp number (optional, press Enter to allow ALL numbers): ")
+				var expectedCode string
+				if waUserID != "" {
+					codeLetters := []rune("0123456789")
+					code := make([]rune, 4)
+					for i := range code {
+						code[i] = codeLetters[rand.Intn(len(codeLetters))]
+					}
+					expectedCode = string(code)
+				}
+
+				fmt.Println("\n  How would you like to pair your device?")
+				fmt.Println("  [1] Phone Number Link Code (Recommended for remote servers)")
+				fmt.Println("  [2] Terminal QR Code Scan")
+				linkChoice := promptLine("  Choose [1/2] (default 1): ")
+
+				var pairPhone string
+				if linkChoice != "2" {
+					pairPhone = promptLine("  Bot's WhatsApp number (with country code, e.g. 12025551234): ")
+					pairPhone = strings.ReplaceAll(pairPhone, " ", "")
+					pairPhone = strings.ReplaceAll(pairPhone, "-", "")
+					pairPhone = strings.ReplaceAll(pairPhone, "+", "")
+					pairPhone = strings.ReplaceAll(pairPhone, "(", "")
+					pairPhone = strings.ReplaceAll(pairPhone, ")", "")
+				}
+
+				lid, err := whatsapp.PerformSetup(cfg.Channels.WhatsApp.SessionPath, expectedCode, pairPhone)
+
+				if err != nil {
+					fmt.Printf("  ⚠ WhatsApp Setup failed: %v\n", err)
+					fmt.Println("  ✓ WhatsApp enabled (not linked - device may be offline)")
+					cfg.Channels.WhatsApp.Enabled = true
+					cfg.Channels.WhatsApp.AllowFrom = nil
+				} else if expectedCode != "" && lid != "" {
+					fmt.Printf("  ✓ Success! Number authorized (Local ID linked).\n")
+					cfg.Channels.WhatsApp.Enabled = true
+					cfg.Channels.WhatsApp.AllowFrom = config.FlexibleStringSlice{lid}
+				} else {
+					fmt.Println("  ✓ WhatsApp enabled")
+					cfg.Channels.WhatsApp.Enabled = true
+					cfg.Channels.WhatsApp.AllowFrom = nil
+				}
+			}
+		default:
+			fmt.Println("  Invalid choice, please try again.")
 		}
+		fmt.Println("\n  ──────────────────────────")
 	}
 
 	// Atomic save — everything at once
@@ -495,25 +682,17 @@ func onboard() {
 
 	fmt.Printf("  Workspace ready: %s ✓\n", workspace)
 
-	// Start gateway?
+	// Start gateway via init script (ensures proper env vars: GOMEMLIMIT, GOGC, TZ)
 	fmt.Println()
-	if promptYN("  Start LuckyClaw gateway now?") {
+	fmt.Println("  Starting gateway via init script...")
+	cmd := exec.Command("/etc/init.d/S99luckyclaw", "start")
+	if err := cmd.Run(); err != nil {
+		fmt.Printf("  Warning: init script failed: %v\n", err)
+		fmt.Println("  Starting gateway directly...")
 		gatewayStartBackground()
 	}
-
-	fmt.Println()
-	fmt.Println("  ╔══════════════════════════════════════╗")
-	fmt.Println("  ║  🦞 LuckyClaw is ready!              ║")
-	fmt.Println("  ╚══════════════════════════════════════╝")
-	fmt.Println()
-	fmt.Println("  Commands:")
-	fmt.Println("    luckyclaw status     — Check system status")
-	fmt.Println("    luckyclaw gateway    — Start the gateway")
-	fmt.Println("    luckyclaw gateway -b — Start in background")
-	fmt.Println("    luckyclaw stop       — Stop the gateway")
-	fmt.Println("    luckyclaw restart    — Restart the gateway")
-	fmt.Println("    luckyclaw help       — View more commands")
-	fmt.Println()
+	time.Sleep(2 * time.Second)
+	showBanner()
 }
 
 // stopCmd stops the running gateway process.
@@ -599,17 +778,19 @@ func gatewayStartBackground() {
 		os.Exit(1)
 	}
 
+	pid := cmd.Process.Pid
+
 	// Write PID file
 	pidFile := "/var/run/luckyclaw.pid"
 	if pf, err := os.Create(pidFile); err == nil {
-		fmt.Fprintf(pf, "%d", cmd.Process.Pid)
+		fmt.Fprintf(pf, "%d", pid)
 		pf.Close()
 	}
 
 	cmd.Process.Release()
 	f.Close()
 
-	fmt.Printf("🦞 LuckyClaw started in background (PID %d)\n", cmd.Process.Pid)
+	fmt.Printf("🦞 LuckyClaw started in background (PID %d)\n", pid)
 	fmt.Printf("   Log: %s\n", logFile)
 	fmt.Println("   Use 'luckyclaw stop' to stop or 'luckyclaw restart' to restart")
 }
@@ -658,7 +839,36 @@ func copyEmbeddedToTarget(targetDir string) error {
 		return nil
 	})
 
-	return err
+	if err != nil {
+		return err
+	}
+
+	// Remove orphaned skill directories that are no longer in the embedded workspace.
+	// This cleans up skills deleted between binary updates (e.g. whatsapp-business).
+	embeddedSkills := map[string]bool{}
+	_ = fs.WalkDir(embeddedFiles, "workspace/skills", func(path string, d fs.DirEntry, _ error) error {
+		if !d.IsDir() || path == "workspace/skills" {
+			return nil
+		}
+		rel, _ := filepath.Rel("workspace/skills", path)
+		// Only track top-level skill dirs
+		if !strings.Contains(rel, string(filepath.Separator)) {
+			embeddedSkills[rel] = true
+		}
+		return nil
+	})
+	diskSkillsDir := filepath.Join(targetDir, "skills")
+	if entries, readErr := os.ReadDir(diskSkillsDir); readErr == nil {
+		for _, entry := range entries {
+			if entry.IsDir() && !embeddedSkills[entry.Name()] {
+				orphanPath := filepath.Join(diskSkillsDir, entry.Name())
+				_ = os.RemoveAll(orphanPath)
+				fmt.Printf("  Removed orphaned skill: %s\n", entry.Name())
+			}
+		}
+	}
+
+	return nil
 }
 
 func configResetCmd() {
@@ -883,7 +1093,7 @@ func interactiveMode(agentLoop *agent.AgentLoop, sessionKey string) {
 func simpleInteractiveMode(agentLoop *agent.AgentLoop, sessionKey string) {
 	reader := bufio.NewReader(os.Stdin)
 	for {
-		fmt.Print(fmt.Sprintf("%s You: ", logo))
+		fmt.Printf("%s You: ", logo)
 		line, err := reader.ReadString('\n')
 		if err != nil {
 			if err == io.EOF {
@@ -999,6 +1209,19 @@ func gatewayCmd() {
 	// Inject channel manager into agent loop for command handling
 	agentLoop.SetChannelManager(channelManager)
 
+	// Register native WhatsApp if enabled
+	var waChannel *whatsapp.WhatsAppChannel
+	if cfg.Channels.WhatsApp.Enabled {
+		wa, err := whatsapp.NewWhatsAppChannel(cfg.Channels.WhatsApp, msgBus, cfg.Channels.WhatsApp.SessionPath)
+		if err != nil {
+			logger.ErrorCF("whatsapp", "Failed to initialize native WhatsApp channel", map[string]interface{}{"error": err.Error()})
+		} else {
+			channelManager.RegisterChannel("whatsapp", wa)
+			waChannel = wa
+			logger.InfoC("whatsapp", "Native WhatsApp channel registered")
+		}
+	}
+
 	// Wire Discord moderation tool callbacks from the live DiscordChannel
 	if discordCh, ok := channelManager.GetChannel("discord"); ok {
 		if dc, ok := discordCh.(*channels.DiscordChannel); ok {
@@ -1081,6 +1304,16 @@ func gatewayCmd() {
 
 	if err := channelManager.StartAll(ctx); err != nil {
 		fmt.Printf("Error starting channels: %v\n", err)
+	}
+
+	// Wire WhatsApp self-chat JID into the heartbeat service and agent loop for alert delivery.
+	// After StartAll, the WhatsApp client is connected and Store.ID is populated.
+	if waChannel != nil {
+		if selfJID := waChannel.GetSelfJID(); selfJID != "" {
+			heartbeatService.SetSelfChatJID(selfJID)
+			agentLoop.SetSelfChatJID(selfJID)
+			logger.InfoCF("whatsapp", "Self-chat JID configured", map[string]interface{}{"jid": selfJID})
+		}
 	}
 
 	healthServer := health.NewServer(cfg.Gateway.Host, cfg.Gateway.Port)
@@ -1228,13 +1461,25 @@ func statusCmd() {
 
 	// Channel status
 	fmt.Println()
+	hasChannels := false
 	if cfg.Channels.Telegram.Enabled {
 		fmt.Println("  Telegram: enabled ✓")
+		hasChannels = true
 	}
 	if cfg.Channels.Discord.Enabled {
 		fmt.Println("  Discord: enabled ✓")
+		hasChannels = true
 	}
-	if !cfg.Channels.Telegram.Enabled && !cfg.Channels.Discord.Enabled {
+	if cfg.Channels.WhatsApp.Enabled {
+		fmt.Println("  WhatsApp: enabled ✓")
+		hasChannels = true
+	}
+	if cfg.Channels.Slack.Enabled {
+		fmt.Println("  Slack: enabled ✓")
+		hasChannels = true
+	}
+
+	if !hasChannels {
 		fmt.Println("  Channels: none enabled")
 	}
 
@@ -2002,4 +2247,55 @@ func applySystemTimezone(cfg *config.Config) {
 	// match the system prompt time without requiring zoneinfo db.
 	posixTZ := getPosixTZ(cfg.Gateway.UTCOffset)
 	os.Setenv("TZ", posixTZ)
+}
+func installCmd() {
+	if os.Getuid() != 0 {
+		fmt.Println("  ⚠ Warning: This command usually requires root privileges to write to /etc.")
+	}
+
+	fmt.Println("\n  🦞 LuckyClaw Installation")
+	fmt.Println("  ─────────────────────────")
+
+	// 1. Init script
+	srcInit := "overlay/etc/init.d/S99luckyclaw"
+	dstInit := "/etc/init.d/S99luckyclaw"
+	fmt.Printf("  Installing init script to %s... ", dstInit)
+
+	initData, err := firmware.FS.ReadFile(srcInit)
+	if err == nil {
+		err = os.WriteFile(dstInit, initData, 0755)
+	}
+
+	if err != nil {
+		fmt.Printf("✗\n    Error: %v\n", err)
+	} else {
+		fmt.Println("✓")
+	}
+
+	// 2. SSH Banner
+	srcBanner := "overlay/etc/profile.d/luckyclaw-banner.sh"
+	dstBanner := "/etc/profile.d/luckyclaw-banner.sh"
+	fmt.Printf("  Installing SSH banner to %s... ", dstBanner)
+
+	bannerData, err := firmware.FS.ReadFile(srcBanner)
+	if err == nil {
+		err = os.WriteFile(dstBanner, bannerData, 0644)
+	}
+
+	if err != nil {
+		fmt.Printf("✗\n    Error: %v\n", err)
+	} else {
+		fmt.Println("✓")
+	}
+
+	fmt.Println("\n  ✓ Installation complete.")
+	fmt.Println("  You can now start LuckyClaw via: /etc/init.d/S99luckyclaw start")
+}
+
+func copyFile(src, dst string, mode os.FileMode) error {
+	input, err := os.ReadFile(src)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(dst, input, mode)
 }

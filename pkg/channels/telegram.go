@@ -119,7 +119,7 @@ func (c *TelegramChannel) Start(ctx context.Context) error {
 		return c.handleMessage(ctx, &message)
 	}, th.AnyMessage())
 
-	c.setRunning(true)
+	c.SetRunning(true)
 	logger.InfoCF("telegram", "Telegram bot connected", map[string]interface{}{
 		"username": c.bot.Username(),
 	})
@@ -135,7 +135,7 @@ func (c *TelegramChannel) Start(ctx context.Context) error {
 }
 func (c *TelegramChannel) Stop(ctx context.Context) error {
 	logger.InfoC("telegram", "Stopping Telegram bot...")
-	c.setRunning(false)
+	c.SetRunning(false)
 	return nil
 }
 
@@ -243,19 +243,9 @@ func (c *TelegramChannel) handleMessage(ctx context.Context, message *telego.Mes
 
 	content := ""
 	mediaPaths := []string{}
-	localFiles := []string{} // 跟踪需要清理的本地文件
-
-	// 确保临时文件在函数返回时被清理
-	defer func() {
-		for _, file := range localFiles {
-			if err := os.Remove(file); err != nil {
-				logger.DebugCF("telegram", "Failed to cleanup temp file", map[string]interface{}{
-					"file":  file,
-					"error": err.Error(),
-				})
-			}
-		}
-	}()
+	// Temp file cleanup is handled centrally by loop.go after LLM processing.
+	// Do NOT defer os.Remove here — it races with the provider reading the file.
+	localFiles := []string{}
 
 	if message.Text != "" {
 		content += message.Text
@@ -384,7 +374,7 @@ func (c *TelegramChannel) handleMessage(ctx context.Context, message *telego.Mes
 		"is_group":   fmt.Sprintf("%t", message.Chat.Type != "private"),
 	}
 
-	c.HandleMessage(fmt.Sprintf("%d", user.ID), fmt.Sprintf("%d", chatID), content, mediaPaths, metadata)
+	c.HandleMessage(fmt.Sprintf("%d", user.ID), fmt.Sprintf("%d", chatID), content, mediaPaths, metadata, "", "")
 	return nil
 }
 

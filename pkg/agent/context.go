@@ -101,7 +101,7 @@ func (cb *ContextBuilder) getIdentity() string {
 
 	return fmt.Sprintf(`# luckyclaw 🦞
 
-You are luckyclaw, a helpful AI assistant.
+You are luckyclaw. Your personality and behavior are defined by your SOUL.md file.
 
 ## Current Time
 %s
@@ -125,7 +125,9 @@ Your workspace is at: %s
 
 3. **Memory** - When remembering something, write to %s/memory/MEMORY.md
 
-4. **Include source links** - When presenting research or web search results, ALWAYS include the relevant URLs/links in your response so the user can follow up directly without having to ask.%s`,
+4. **Include source links** - When presenting research or web search results, ALWAYS include the relevant URLs/links in your response so the user can follow up directly without having to ask.
+
+5. **Never mention yourself** - Do not mention, reference, or interact with your own bot ID in messages. If your own ID appears in a message, respond naturally without acknowledging it.%s`,
 		timeStr, rt, workspacePath, workspacePath, workspacePath, workspacePath, toolsSection, workspacePath, iterBudget)
 }
 
@@ -184,11 +186,13 @@ The following skills extend your capabilities. To use a skill, read its SKILL.md
 }
 
 func (cb *ContextBuilder) LoadBootstrapFiles() string {
+	// IDENTITY.md loads before SOUL.md so that user personality customizations
+	// in SOUL.md take last-word priority over the generic identity defaults.
+	// AGENTS.md was removed — it never existed on production devices.
 	bootstrapFiles := []string{
-		"AGENTS.md",
-		"SOUL.md",
-		"USER.md",
 		"IDENTITY.md",
+		"USER.md",
+		"SOUL.md",
 	}
 
 	var result string
@@ -206,6 +210,14 @@ func (cb *ContextBuilder) BuildMessages(history []providers.Message, summary str
 	messages := []providers.Message{}
 
 	systemPrompt := cb.BuildSystemPrompt()
+
+	// Inject channel-specific formatting skill BEFORE session info,
+	// giving it higher priority in the LLM's attention.
+	if channel == "whatsapp" {
+		if formatContent, ok := cb.skillsLoader.LoadSkill("whatsapp"); ok {
+			systemPrompt += "\n\n---\n\n# WhatsApp Formatting Rules (MANDATORY)\n" + formatContent
+		}
+	}
 
 	// Add Current Session info if provided
 	if channel != "" && chatID != "" {
@@ -249,6 +261,8 @@ func (cb *ContextBuilder) BuildMessages(history []providers.Message, summary str
 
 	if summary != "" {
 		systemPrompt += "\n\n## Summary of Previous Conversation\n\n" + summary
+		// Reinforce personality after summary to prevent drift
+		systemPrompt += "\n\n## IMPORTANT REMINDER\n\nYou MUST strictly maintain the personality and behavioral instructions defined in the SOUL section at the top of this prompt, regardless of the tone used in the conversation summary above."
 	}
 
 	//This fix prevents the session memory from LLM failure due to elimination of toolu_IDs required from LLM

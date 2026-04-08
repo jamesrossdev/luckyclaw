@@ -1,24 +1,64 @@
 #!/bin/sh
 # LuckyClaw auto-start service
-# Memory-optimized for Luckfox Pico Plus (33MB usable RAM)
+# Dynamically configured for Luckfox Pico boards (Plus/Pro/Max)
 
 DAEMON=/usr/bin/luckyclaw
 PIDFILE=/var/run/luckyclaw.pid
 LOGFILE=/var/log/luckyclaw.log
 CONFIGFILE=/oem/.luckyclaw/config.json
 
-# Go runtime memory limits (critical for 64MB DDR2)
-# GOGC=20 makes GC trigger at 20% heap growth (aggressive but prevents runaway)
-# GOMEMLIMIT=24MiB is a soft ceiling; set below total RAM (57MB) to leave room for OS/buffers
-# WARNING: setting GOMEMLIMIT too low (e.g. 8MiB) causes GC to spin at 100% CPU
+# Aggressive GC for embedded devices (see AGENTS.md Lesson 3)
+# Triggers GC when heap grows 20% (vs default 100%) to keep RSS small
 export GOGC=20
-export GOMEMLIMIT=24MiB
-export TZ=EAT-3
+
 export PATH=$PATH:/usr/bin:/usr/local/bin:/sbin:/bin
+
+detect_memory_profile() {
+    local total_mem_kb=$(grep MemTotal /proc/meminfo | awk '{print $2}')
+    local total_mem_mb=$((total_mem_kb / 1024))
+
+    # MemTotal-based detection (stable, hardware-constant)
+    # Pico Plus:  ≤ 60 MB total (64MB DDR2)  → GOMEMLIMIT=24MiB
+    # Pico Pro:   61-200 MB total (128MB DDR3) → GOMEMLIMIT=48MiB
+    # Pico Max:   > 200 MB total (256MB DDR3) → GOMEMLIMIT=96MiB
+
+    if [ "$total_mem_mb" -gt 200 ]; then
+        export GOMEMLIMIT=96MiB
+        logger -t luckyclaw "Detected Pico Max (${total_mem_mb}MB) - GOMEMLIMIT=96MiB"
+    elif [ "$total_mem_mb" -gt 60 ]; then
+        export GOMEMLIMIT=48MiB
+        logger -t luckyclaw "Detected Pico Pro (${total_mem_mb}MB) - GOMEMLIMIT=48MiB"
+    else
+        export GOMEMLIMIT=24MiB
+        logger -t luckyclaw "Detected Pico Plus (${total_mem_mb}MB) - GOMEMLIMIT=24MiB"
+    fi
+}
+
+# Read timezone from onboarding config (UTC fallback)
+get_timezone_from_config() {
+    if [ -f "$CONFIGFILE" ]; then
+        tz=$(grep -o '"timezone_name"[[:space:]]*:[[:space:]]*"[^"]*"' "$CONFIGFILE" 2>/dev/null | sed 's/.*: *"\([^"]*\)".*/\1/')
+        if [ -n "$tz" ]; then
+            export TZ="$tz"
+            return
+        fi
+    fi
+    export TZ="UTC"
+}
 
 # Ensure Telegram API resolves (fasthttp DNS timeout workaround)
 grep -q "api.telegram.org" /etc/hosts 2>/dev/null || \
   echo "149.154.166.110 api.telegram.org" >> /etc/hosts
+
+# Kill ADB daemon to save RAM (~1.5MB)
+if [ -f /etc/init.d/S90adbd ]; then
+  /etc/init.d/S90adbd stop 2>/dev/null
+fi
+killall -9 adbd 2>/dev/null
+
+# Apply memory and timezone settings
+detect_memory_profile
+get_timezone_from_config
 
 case "$1" in
   start)
@@ -48,7 +88,7 @@ case "$1" in
     # Use sh -c wrapper to daemonize with proper log capture instead.
     start-stop-daemon -S -b -m -p $PIDFILE \
       -x /bin/sh -- -c "exec $DAEMON gateway >> $LOGFILE 2>&1"
-    
+
     # Protect from OOM killer
     sleep 1
     if [ -f $PIDFILE ]; then
@@ -58,7 +98,8 @@ case "$1" in
   stop)
     echo "Stopping LuckyClaw..."
     start-stop-daemon -K -p $PIDFILE 2>/dev/null
-    killall -9 luckyclaw 2>/dev/null
+    # Kill luckyclaw gateway processes (start-stop-daemon excludes calling process)
+    start-stop-daemon -K -x $DAEMON -- --gateway 2>/dev/null
     rm -f $PIDFILE
     ;;
   restart)

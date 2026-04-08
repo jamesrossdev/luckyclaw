@@ -1,0 +1,44 @@
+#!/bin/sh
+# S10fixmac — Derive a stable, unique MAC address from the board hardware serial.
+#
+# The RV1103 SoC has no factory-burned MAC address; the kernel assigns a random
+# one on every cold boot, causing DHCP to issue a different IP each time.
+# This script runs before networking and ensures eth0 always gets the same MAC.
+#
+# The 02: prefix is the IEEE "locally administered" bit — correct for custom MACs.
+# Each board gets a unique MAC derived from its own serial, so multiple boards on
+# the same network won't conflict.
+#
+# Installed at: /etc/init.d/S10fixmac
+
+case "$1" in
+  start)
+    # Try /proc/device-tree/serial-number first (standard Device Tree path on RV1103)
+    SERIAL=$(cat /proc/device-tree/serial-number 2>/dev/null | tr -d '\0')
+
+    # Fallback: /proc/cpuinfo Serial field
+    if [ -z "$SERIAL" ]; then
+      SERIAL=$(grep "^Serial" /proc/cpuinfo 2>/dev/null | awk '{print $NF}')
+    fi
+
+    if [ -n "$SERIAL" ]; then
+      HASH=$(echo -n "$SERIAL" | md5sum | cut -c1-10)
+      MAC="02:${HASH:0:2}:${HASH:2:2}:${HASH:4:2}:${HASH:6:2}:${HASH:8:2}"
+      ip link set eth0 down 2>/dev/null
+      ip link set eth0 address "$MAC" 2>/dev/null
+      ip link set eth0 up 2>/dev/null
+      echo "S10fixmac: eth0 MAC set to $MAC (serial: ${SERIAL:0:8}...)"
+    else
+      echo "S10fixmac: WARNING — could not determine serial number, MAC unchanged"
+    fi
+    ;;
+  stop|restart)
+    # Nothing to do; MAC is set at boot only
+    ;;
+  *)
+    echo "Usage: $0 {start|stop|restart}"
+    exit 1
+    ;;
+esac
+
+exit 0

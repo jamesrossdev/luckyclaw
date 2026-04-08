@@ -10,7 +10,7 @@ Items are prioritized by readiness and impact. Items may be moved between versio
 - SSH banner and init script improvements
 - Default response improvement (echoes user's question on failure)
 
-## v0.2.1 (Current)
+## v0.2.1 ✅
 
 - Discord moderation tools: message deletion, user timeouts (7s–4w)
 - Discord DM sandbox bypass — full tool access in DMs, sandboxed in server channels
@@ -23,13 +23,13 @@ Items are prioritized by readiness and impact. Items may be moved between versio
 - Pico Pro / Pico Max board compatibility clarified
 - Improved memory reporting clarity in status and banner (available / total)
 
-## v0.2.2 (Planned)
+## v0.2.2 (Current)
 
 - `luckyclaw install` — sets up init script, SSH banner, and OOM protection on stock Buildroot (no reflash needed)
 - WhatsApp channel integration
 - Port `registry_test.go` from upstream (tool registry test coverage)
 - Port `shell_process_unix.go` from upstream (process group cleanup for exec tool)
-- Cron tool `at_time` parameter (ISO-8601 absolute time for reminders)
+- Port Empty Response Message Fix (`100720b`) from upstream for stability
 
 ## v0.2.x (Next Minor)
 
@@ -39,6 +39,9 @@ Items are prioritized by readiness and impact. Items may be moved between versio
 
 ## Future
 
+- Telegram MarkdownV2 Sanitizer (`parse_markdown_to_md_v2.go`) port
+- Custom DNS Backup Resolver (`0fe0582`) port
+- Cron tool `at_time` parameter (ISO-8601 absolute time for reminders)
 - Cross-platform flashing tool (replace Windows-only SOCToolKit)
 - Skill marketplace / remote skill install
 

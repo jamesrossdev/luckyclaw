@@ -646,3 +646,125 @@ func TestFilterHeartbeatTools(t *testing.T) {
 		}
 	}
 }
+func TestAgentLoop_EmptyResponseUsesDefault(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "agent-test-*")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	cfg := &config.Config{
+		Agents: config.AgentsConfig{
+			Defaults: config.AgentDefaults{
+				Workspace:         tmpDir,
+				Model:             "test-model",
+				MaxTokens:         4096,
+				MaxToolIterations: 10,
+			},
+		},
+	}
+
+	msgBus := bus.NewMessageBus()
+	provider := &simpleMockProvider{response: ""}
+	al := NewAgentLoop(cfg, msgBus, provider)
+
+	// In luckyclaw, processMessage passes the default response
+	const defaultResponse = "I've completed processing but have no response to give."
+	response, err := al.processMessage(context.Background(), bus.InboundMessage{
+		Channel:  "test",
+		SenderID: "user1",
+		ChatID:   "chat1",
+		Content:  "hello",
+	})
+	if err != nil {
+		t.Fatalf("processMessage failed: %v", err)
+	}
+	// Since we provided a UserMessage ("hello"), the fallback includes it
+	expected := "I wasn't able to answer: \"hello\". Please try again."
+	if response != expected {
+		t.Fatalf("response = %q, want %q", response, expected)
+	}
+}
+
+func TestAgentLoop_ToolLimitUsesDedicatedFallback(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "agent-test-*")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	cfg := &config.Config{
+		Agents: config.AgentsConfig{
+			Defaults: config.AgentDefaults{
+				Workspace:         tmpDir,
+				Model:             "test-model",
+				MaxTokens:         4096,
+				MaxToolIterations: 1, // Set to 1 to trigger limit quickly
+			},
+		},
+	}
+
+	msgBus := bus.NewMessageBus()
+	provider := &toolLimitOnlyProvider{}
+	al := NewAgentLoop(cfg, msgBus, provider)
+	al.RegisterTool(&toolLimitTestTool{})
+
+	response, err := al.processMessage(context.Background(), bus.InboundMessage{
+		Channel:  "test",
+		SenderID: "user1",
+		ChatID:   "chat1",
+		Content:  "hello",
+	})
+	if err != nil {
+		t.Fatalf("processMessage failed: %v", err)
+	}
+	if response != toolLimitResponse {
+		t.Fatalf("response = %q, want %q", response, toolLimitResponse)
+	}
+}
+
+type toolLimitOnlyProvider struct{}
+
+func (m *toolLimitOnlyProvider) Chat(
+	ctx context.Context,
+	messages []providers.Message,
+	tools []providers.ToolDefinition,
+	model string,
+	opts map[string]interface{},
+) (*providers.LLMResponse, error) {
+	return &providers.LLMResponse{
+		ToolCalls: []providers.ToolCall{{
+			ID:        "call_tool_limit_test",
+			Type:      "function",
+			Name:      "tool_limit_test_tool",
+			Arguments: map[string]interface{}{"value": "x"},
+		}},
+	}, nil
+}
+
+func (m *toolLimitOnlyProvider) GetDefaultModel() string {
+	return "tool-limit-only-model"
+}
+
+type toolLimitTestTool struct{}
+
+func (m *toolLimitTestTool) Name() string {
+	return "tool_limit_test_tool"
+}
+
+func (m *toolLimitTestTool) Description() string {
+	return "Tool used to exhaust the iteration budget in tests"
+}
+
+func (m *toolLimitTestTool) Parameters() map[string]interface{} {
+	return map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"value": map[string]interface{}{"type": "string"},
+		},
+	}
+}
+
+func (m *toolLimitTestTool) Execute(ctx context.Context, args map[string]interface{}) *tools.ToolResult {
+	return tools.SilentResult("tool limit test result")
+}

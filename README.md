@@ -23,16 +23,17 @@ LuckyClaw is a streamlined, self-contained AI assistant purpose-built for the [L
 
 - 🔧 **Pre-built firmware** — Flash and go, no SDK or compilation required
 - 🧙 **Interactive onboarding** — `luckyclaw onboard` walks you through everything in 2 minutes
-- 🧠 **Memory-optimized** — Tuned specifically for 64MB boards, not general-purpose servers
+- 🧠 **Memory-optimized** — Tuned specifically for 64MB RAM boards, not general-purpose servers
 - 📟 **SSH banner** — See gateway status and commands on every login
 - 🌍 **Timezone-aware** — Correct local time on the board, no `/usr/share/zoneinfo` needed
-- 📎 **File attachments** — Send files directly via Telegram
+- 📎 **File attachments** — Send files via Telegram, WhatsApp, or Discord
 - 🤙 **Conservative by design** — Fewer features, fewer surprises, fewer crashes
 
-> [!NOTE]
 > LuckyClaw is built on top of [PicoClaw](https://github.com/sipeed/picoclaw) by [Sipeed](https://sipeed.com). PicoClaw is the upstream project — LuckyClaw is the simpler, more opinionated fork optimized for Luckfox hardware and everyday users. We cherry-pick stability fixes and genuinely useful features from upstream; we don't try to keep pace with every new addition.
 
-## ⚡ Quick Start (End Users)
+---
+
+## Quick Start (End Users)
 
 ### Option A: Flash Pre-Built Firmware (Recommended for Beginners)
 
@@ -68,9 +69,9 @@ luckyclaw gateway -b
 
 \* *The Pico Pro (128MB RAM) and Pico Max (256MB RAM) share the same RV1106 SoC and firmware image.*
 
-> [!IMPORTANT]
 > LuckyClaw currently only supports these three board variants. Other Luckfox variants (Pico Mini, Pico Zero, etc.) are untested and may not work.
 
+---
 ### 1. Flash the firmware
 
 Download the firmware image matching your board from [GitHub Releases](https://github.com/jamesrossdev/luckyclaw/releases).
@@ -89,6 +90,27 @@ ssh root@<IP>
 > [!TIP]
 > The device IP depends on your network. Connect the board via USB-C or Ethernet and check your router's DHCP leases, or use `arp -a | grep luckfox` to find it.
 
+### Setting a Static IP
+
+By default, the board obtains an IP address via DHCP. To set a static IP:
+
+```bash
+# Edit network interfaces
+nano /etc/network/interfaces
+
+# Replace dhcp with static configuration:
+auto eth0
+iface eth0 inet static
+    address 192.168.1.100
+    netmask 255.255.255.0
+    gateway 192.168.1.1
+
+# Apply changes
+/etc/init.d/S40network restart
+```
+
+For persistent configuration across reboots, configure DHCP reservation on your router using the board's MAC address.
+
 You'll see the LuckyClaw banner:
 
 ```
@@ -98,7 +120,7 @@ You'll see the LuckyClaw banner:
 | |__| |_| | (__|   <| |_| | |___| | (_| |\ V  V /
 |_____\__,_|\___|_|\_\\__, |\____|_|\__,_| \_/\_/
                       |___/
-  🦞 luckyclaw v0.2.0
+  🦞 luckyclaw v0.2.2
 
   Gateway: running (PID 1234, 15MB)
   Memory:  33MB / 55MB available
@@ -147,11 +169,12 @@ luckyclaw agent
 | ------------ | ------------------- | -------------------------- |
 | **Telegram** | ✅ Ready             | Token from @BotFather      |
 | **Discord**  | ✅ Ready             | Bot token + intents        |
-| **WhatsApp** | 🚧 Work in Progress | —                          |
-| **Slack**    | 🧬 Inherited (untested) | —                       |
+| **WhatsApp** | ✅ Ready             | Use `luckyclaw onboard` to scan QR |
+
+Plus other channels inherited from upstream (LINE, QQ, DingTalk, Feishu, MaixCam).
 
 <details>
-<summary><b>Telegram Setup</b> (Recommended)</summary>
+<summary><b>Telegram Setup</b></summary>
 
 1. Message `@BotFather` on Telegram → `/newbot` → copy the token
 2. Get your user ID from `@userinfobot`
@@ -168,6 +191,15 @@ luckyclaw agent
   }
 }
 ```
+
+</details>
+
+<details>
+<summary><b>WhatsApp Setup</b></summary>
+
+1. Run `luckyclaw onboard` and select WhatsApp
+2. Scan the QR code with your WhatsApp app
+3. For advanced features (Business Mode), see [WhatsApp Business Guide](docs/WHATSAPP_BUSINESS.md)
 
 </details>
 
@@ -191,6 +223,7 @@ luckyclaw agent
 ```
 
 4. Invite: OAuth2 → `bot` scope → `Send Messages` + `Read Message History`
+5. For advanced setup (moderator persona, sandbox), see [Discord Moderator Guide](docs/DISCORD_MODERATOR.md)
 
 </details>
 
@@ -203,17 +236,21 @@ luckyclaw agent
 | `luckyclaw onboard`         | Interactive setup wizard        |
 | `luckyclaw status`          | System status (board, memory, gateway) |
 | `luckyclaw gateway`         | Start the AI gateway            |
+| `luckyclaw gateway -b`      | Start the AI gateway in background |
+| `luckyclaw stop`            | Stop the gateway                |
+| `luckyclaw restart`         | Restart the gateway             |
 | `luckyclaw agent -m "..."`  | Send a message directly         |
 | `luckyclaw agent`           | Interactive chat mode           |
 | `luckyclaw cron list`       | List scheduled reminders        |
 | `luckyclaw skills list`     | List installed skills           |
+| `luckyclaw install`         | Install as system service       |
 | `luckyclaw version`         | Show version info               |
 
 ---
 
 ## ⚙️ Configuration
 
-Config: `~/.luckyclaw/config.json`
+Config: `/oem/.luckyclaw/config.json`
 
 ### Providers
 
@@ -226,10 +263,23 @@ Config: `~/.luckyclaw/config.json`
 | `groq`         | Fast inference + voice     | [console.groq.com](https://console.groq.com)           |
 | `ollama`       | Local models (no API key)  | [ollama.com](https://ollama.com)                       |
 
+### Default Configuration
+
+| Setting            | Default Value                  |
+|--------------------|-------------------------------|
+| Provider           | `openrouter`                 |
+| Model              | `stepfun/step-3.5-flash:free` |
+| Max Tokens         | `16384`                       |
+| Context Window     | Model-specific (queried via API) |
+| Temperature        | `0.6`                         |
+| Max Tool Iterations| `25`                          |
+
 ### Workspace Layout
 
+On-device path: `/oem/.luckyclaw/workspace/`
+
 ```
-~/.luckyclaw/workspace/
+/oem/.luckyclaw/workspace/
 ├── sessions/          # Conversation history
 ├── memory/            # Long-term memory (MEMORY.md)
 ├── cron/              # Scheduled jobs
@@ -261,13 +311,13 @@ Ask the agent to set reminders naturally:
 - *"Remind me every 2 hours to drink water"*
 - *"Set an alarm for 9am daily"*
 
-Jobs are stored in `~/.luckyclaw/workspace/cron/` and persist across restarts.
+Jobs are stored in `/oem/.luckyclaw/workspace/cron/` and persist across restarts.
 
 ---
 
 ## 🔒 Security
 
-LuckyClaw runs in a sandboxed workspace by default. The agent can only access files within `~/.luckyclaw/workspace/`.
+LuckyClaw runs in a sandboxed workspace by default. The agent can only access files within `/oem/.luckyclaw/workspace/`.
 
 To allow system-wide access (use with caution):
 
@@ -285,111 +335,7 @@ To allow system-wide access (use with caution):
 
 ## 🛠️ Developer Guide
 
-### Prerequisites
-
-- Go 1.25+
-- [Luckfox Pico SDK](https://github.com/LuckfoxTECH/luckfox-pico) (for firmware builds)
-- ARM cross-compilation toolchain (included in the SDK)
-
-### Build from source
-
-```bash
-git clone https://github.com/jamesrossdev/luckyclaw.git
-cd luckyclaw
-
-# Build for your local machine
-make build
-
-# Cross-compile for Luckfox Pico (ARMv7)
-make build-arm
-```
-
-### Development Workflow
-
-Keep the codebase clean using the integrated Makefile targets:
-
-- `make fmt` — Format Go code
-- `make vet` — Run static analysis
-- `make test` — Run unit tests
-- `make check` — Run all of the above (recommended before committing)
-- `make clean` — Remove build artifacts
-
-### Build firmware image
-
-The firmware overlay only contains OS-level files that get baked into `rootfs.img`. The **workspace templates** (`SOUL.md`, skills, etc.) are **embedded directly into the binary** via `go:embed workspace` — so every binary already carries the full workspace inside it. Users get workspace files by running `luckyclaw onboard`, which extracts them to `/oem/.luckyclaw/workspace/`.
-
-```
-firmware/overlay/
-└── etc/
-    ├── init.d/S99luckyclaw          # Auto-start on boot
-    ├── profile.d/luckyclaw-banner.sh # SSH login banner
-    └── ssl/certs/ca-certificates.crt # TLS certificates
-```
-
-To build a distributable firmware image:
-
-1. **Build the ARM binary** (workspace is embedded automatically):
-   ```bash
-   make build-arm
-   # Output: build/luckyclaw-linux-arm
-   ```
-
-2. **Clone the SDK** (one-time setup):
-   ```bash
-   git clone https://github.com/LuckfoxTECH/luckfox-pico.git luckfox-pico-sdk
-   ```
-
-3. **Sync the `etc/` overlay to the SDK** (do this if init script or banner changed):
-   ```bash
-   cp -r firmware/overlay/etc/ \
-     luckfox-pico-sdk/project/cfg/BoardConfig_IPC/overlay/luckyclaw-overlay/etc/
-   ```
-
-4. **Copy the ARM binary into the SDK overlay**:
-   ```bash
-   cp build/luckyclaw-linux-arm \
-     luckfox-pico-sdk/project/cfg/BoardConfig_IPC/overlay/luckyclaw-overlay/usr/bin/luckyclaw
-   chmod +x \
-     luckfox-pico-sdk/project/cfg/BoardConfig_IPC/overlay/luckyclaw-overlay/usr/bin/luckyclaw
-   ```
-
-5. **Build the firmware image**:
-   ```bash
-   cd luckfox-pico-sdk && ./build.sh
-   ```
-
-6. **Find the output image**:
-   ```
-   luckfox-pico-sdk/IMAGE/<timestamp>/IMAGES/update.img
-   ```
-   Rename it: `luckyclaw-luckfox_pico_plus_rv110x-vX.Y.Z.img` depending on your board and version.
-
-When a user flashes this image and runs `luckyclaw onboard`, the embedded workspace is extracted to `/oem/.luckyclaw/workspace/`.
-
-### Project structure
-
-```
-luckyclaw/
-├── cmd/luckyclaw/main.go    # Entry point, CLI, onboarding wizard (embeds workspace/)
-├── pkg/
-│   ├── agent/               # Core agent loop and context builder
-│   ├── bus/                 # Internal message bus
-│   ├── channels/            # Telegram, Discord, and other messaging integrations
-│   ├── config/              # Configuration and system settings
-│   ├── providers/           # LLM provider implementations (OpenRouter, etc.)
-│   ├── skills/              # Skill loader and installer
-│   ├── tools/               # Agent tools (shell, file, i2c, spi, send_file)
-│   └── ...
-├── firmware/overlay/etc/    # Init script + SSH banner baked into firmware image
-├── workspace/               # Templates embedded into binary via go:embed
-└── assets/                  # Documentation images and media
-```
-
-
-
-### Performance tuning
-
-LuckyClaw automatically sets `GOGC=20` and `GOMEMLIMIT=24MiB` at startup for memory-constrained boards. These can be overridden via environment variables if your board has more RAM.
+For instructions on compiling from source, cross-compiling, and optimizing the Luckfox SDK root filesystem (including our automated `optimize-rootfs.patch`), please see the **[Developer Guide](docs/DEVELOPER_GUIDE.md)**!
 
 ---
 
@@ -438,6 +384,18 @@ LuckyClaw v0.2.0+ embeds its own timezone database and sets the timezone during 
    echo "export TZ='America/New_York'" > /etc/profile.d/timezone.sh
    ```
    Then restart the gateway: `luckyclaw restart`
+
+---
+
+## ⚡ Quick Navigation (Terminal Shortcuts)
+
+| Destination | Path / Command |
+|-------------|----------------|
+| **Config File** | `nano ~/.luckyclaw/config.json` |
+| **Workspace** | `~/.luckyclaw/workspace/` |
+| **Skills Dir** | `~/.luckyclaw/workspace/skills/` |
+| **Logs** | `tail -f /var/log/luckyclaw.log` |
+| **Gateway Status** | `luckyclaw status` |
 
 ---
 

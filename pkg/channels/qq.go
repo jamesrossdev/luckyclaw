@@ -90,11 +90,11 @@ func (c *QQChannel) Start(ctx context.Context) error {
 			logger.ErrorCF("qq", "WebSocket session error", map[string]interface{}{
 				"error": err.Error(),
 			})
-			c.setRunning(false)
+			c.SetRunning(false)
 		}
 	}()
 
-	c.setRunning(true)
+	c.SetRunning(true)
 	logger.InfoC("qq", "QQ bot started successfully")
 
 	return nil
@@ -102,7 +102,7 @@ func (c *QQChannel) Start(ctx context.Context) error {
 
 func (c *QQChannel) Stop(ctx context.Context) error {
 	logger.InfoC("qq", "Stopping QQ bot")
-	c.setRunning(false)
+	c.SetRunning(false)
 
 	if c.cancel != nil {
 		c.cancel()
@@ -167,7 +167,7 @@ func (c *QQChannel) handleC2CMessage() event.C2CMessageEventHandler {
 			"message_id": data.ID,
 		}
 
-		c.HandleMessage(senderID, senderID, content, []string{}, metadata)
+		c.HandleMessage(senderID, senderID, content, []string{}, metadata, "", "")
 
 		return nil
 	}
@@ -209,7 +209,7 @@ func (c *QQChannel) handleGroupATMessage() event.GroupATMessageEventHandler {
 			"group_id":   data.GroupID,
 		}
 
-		c.HandleMessage(senderID, data.GroupID, content, []string{}, metadata)
+		c.HandleMessage(senderID, data.GroupID, content, []string{}, metadata, "", "")
 
 		return nil
 	}

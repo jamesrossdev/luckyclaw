@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -33,14 +34,15 @@ type HeartbeatHandler func(prompt, channel, chatID string) *tools.ToolResult
 
 // HeartbeatService manages periodic heartbeat checks
 type HeartbeatService struct {
-	workspace string
-	bus       *bus.MessageBus
-	state     *state.Manager
-	handler   HeartbeatHandler
-	interval  time.Duration
-	enabled   bool
-	mu        sync.RWMutex
-	stopChan  chan struct{}
+	workspace   string
+	bus         *bus.MessageBus
+	state       *state.Manager
+	handler     HeartbeatHandler
+	interval    time.Duration
+	enabled     bool
+	mu          sync.RWMutex
+	stopChan    chan struct{}
+	selfChatJID string // WhatsApp self-chat JID for alert delivery
 }
 
 // NewHeartbeatService creates a new heartbeat service
@@ -67,6 +69,15 @@ func (hs *HeartbeatService) SetBus(msgBus *bus.MessageBus) {
 	hs.mu.Lock()
 	defer hs.mu.Unlock()
 	hs.bus = msgBus
+}
+
+// SetSelfChatJID configures the WhatsApp self-chat JID to deliver actionable alerts to.
+// When set, non-silent heartbeat alerts are sent here instead of the last user channel.
+func (hs *HeartbeatService) SetSelfChatJID(jid string) {
+	hs.mu.Lock()
+	defer hs.mu.Unlock()
+	hs.selfChatJID = jid
+	logger.InfoCF("heartbeat", "Self-chat alert delivery configured", map[string]interface{}{"jid": jid})
 }
 
 // SetHandler sets the heartbeat handler.
@@ -161,16 +172,37 @@ func (hs *HeartbeatService) executeHeartbeat() {
 
 	logger.InfoC("heartbeat", "[AUDIT] executeHeartbeat: START")
 
-	prompt := hs.buildPrompt()
-	if prompt == "" {
-		logger.InfoC("heartbeat", "[AUDIT] executeHeartbeat: empty prompt, aborting")
-		hs.logInfo("No heartbeat prompt (HEARTBEAT.md empty or missing)")
-		return
-	}
-
 	if handler == nil {
 		logger.InfoC("heartbeat", "[AUDIT] executeHeartbeat: handler nil, aborting")
 		hs.logError("Heartbeat handler not configured")
+		return
+	}
+
+	localResult := hs.runLocalChecks()
+
+	hasCustomTasks := hs.hasCustomUserTasks()
+
+	var prompt string
+	if !localResult.allNormal {
+		prompt = fmt.Sprintf(`# Heartbeat Check - ALERT MODE
+
+Current time: %s
+
+CRITICAL: Local checks detected issues:
+%s
+
+You are a proactive AI assistant. Report these issues concisely.
+Do NOT run diagnostic tools - the issues are already detected.
+Focus on explaining the impact and any recommended actions.
+
+If these are the only issues, respond with HEARTBEAT_OK after listing them.
+`, time.Now().Format("2006-01-02 15:04:05"), strings.Join(localResult.alerts, "\n"))
+	} else if hasCustomTasks {
+		userPrompt := hs.buildPrompt()
+		prompt = hs.buildCustomTaskPrompt(userPrompt)
+	} else {
+		logger.InfoC("heartbeat", "[AUDIT] executeHeartbeat: all checks passed, no custom tasks")
+		hs.logInfo("Heartbeat OK - all systems normal, no custom tasks")
 		return
 	}
 
@@ -231,17 +263,35 @@ func (hs *HeartbeatService) executeHeartbeat() {
 		return
 	}
 
-	// LEAK PATH: if we reach here, the message WILL be sent to the user
-	logger.WarnCF("heartbeat", "[AUDIT] LEAK: Heartbeat message reaching sendResponse!", map[string]interface{}{
-		"content": truncateForLog(content, 200),
-		"Silent":  result.Silent,
-		"ForUser": truncateForLog(result.ForUser, 100),
-		"ForLLM":  truncateForLog(result.ForLLM, 100),
-	})
-
-	// Send result to user
+	// Route actionable alert to self-chat (WhatsApp) or log-only fallback
 	if content != "" {
-		hs.sendResponse(content)
+		hs.mu.RLock()
+		selfJID := hs.selfChatJID
+		hs.mu.RUnlock()
+
+		if selfJID != "" {
+			// Deliver to the bot's own WhatsApp "Message Yourself" chat
+			logger.InfoCF("heartbeat", "[AUDIT] Delivering alert to WhatsApp self-chat", map[string]interface{}{
+				"jid":     selfJID,
+				"content": truncateForLog(content, 100),
+			})
+			hs.mu.RLock()
+			msgBus := hs.bus
+			hs.mu.RUnlock()
+			if msgBus != nil {
+				msgBus.PublishOutbound(bus.OutboundMessage{
+					Channel: "whatsapp",
+					ChatID:  selfJID,
+					Content: "⚠️ *Heartbeat Alert*\n\n" + content,
+				})
+			}
+		} else {
+			// No self-chat configured — log the alert only
+			logger.WarnCF("heartbeat", "[AUDIT] Alert suppressed (no self-chat JID set)", map[string]interface{}{
+				"content": truncateForLog(content, 200),
+			})
+			hs.logInfo("Heartbeat alert (no self-chat configured): %s", content)
+		}
 	}
 
 	hs.logInfo("Heartbeat completed: %s", content)
@@ -300,30 +350,26 @@ func (hs *HeartbeatService) createDefaultHeartbeatTemplate() {
 
 	defaultContent := `# Heartbeat Tasks
 
-Execute ALL tasks below every heartbeat cycle. Use shell commands for local data — do NOT waste API tokens on info available locally.
+System health checks (disk, memory) run automatically before this prompt.
+Add your custom tasks below.
 
-## 1. Time & Date (local — use shell)
-- Run: ` + "`date '+%A, %B %d %Y — %I:%M %p %Z'`" + `
-- Note any upcoming reminders from memory files
+## Example Custom Tasks
 
-## 2. Device Health (local — use shell)
-- Run: ` + "`free -m | grep Mem`" + ` — report available memory
-- Run: ` + "`uptime`" + ` — report uptime and load
-- If available memory < 5MB, warn the user immediately
-
-## 3. Network (local — use shell)
-- Run: ` + "`ping -c 1 -W 2 8.8.8.8 > /dev/null 2>&1 && echo \"Online\" || echo \"OFFLINE\"`" + `
-- If offline, alert the user
+- Check RSS feeds for specific keywords
+- Summarize today's calendar events
+- Send a reminder if a specific condition is met
+- Check email for important messages
 
 ## Instructions
-- Use shell tool for ALL tasks above — they are local system checks
-- Keep responses brief — one line per task max
-- Only respond with HEARTBEAT_OK after ALL tasks are complete and nothing needs attention
-- If any task shows a problem, flag it clearly
+
+- List tasks that require the LLM to perform actions
+- Use available tools (exec, read_file, web search, etc.)
+- Keep tasks concise and specific
+- Respond with HEARTBEAT_OK if all tasks are completed successfully
 
 ---
 
-Add your heartbeat tasks below this line:
+Add your custom tasks below this line:
 `
 
 	if err := os.WriteFile(heartbeatPath, []byte(defaultContent), 0644); err != nil {
@@ -403,8 +449,13 @@ func (hs *HeartbeatService) logError(format string, args ...any) {
 }
 
 // log writes a message to the heartbeat log file, with stderr fallback
+// Log file is placed outside the workspace to prevent LLM from reading old logs
 func (hs *HeartbeatService) log(level, format string, args ...any) {
-	logFile := filepath.Join(hs.workspace, "heartbeat.log")
+	// Place log file alongside config: /oem/.luckyclaw/heartbeat.log
+	// This prevents the LLM from reading old heartbeat logs which waste tokens
+	// Strategy: replace "/workspace" suffix with "" to get config directory
+	workspaceSuffix := string(filepath.Separator) + "workspace"
+	logFile := strings.Replace(hs.workspace, workspaceSuffix, "", 1) + string(filepath.Separator) + "heartbeat.log"
 	message := fmt.Sprintf(format, args...)
 	timestamp := time.Now().Format("2006-01-02 15:04:05")
 	line := fmt.Sprintf("[%s] [%s] %s\n", timestamp, level, message)
@@ -429,4 +480,92 @@ func truncateForLog(s string, maxLen int) string {
 		return s
 	}
 	return s[:maxLen] + "..."
+}
+
+type localCheckResult struct {
+	allNormal bool
+	alerts    []string
+}
+
+func (hs *HeartbeatService) runLocalChecks() localCheckResult {
+	result := localCheckResult{allNormal: true}
+
+	diskUsage := getDiskUsage()
+	if diskUsage >= 95.0 {
+		result.allNormal = false
+		result.alerts = append(result.alerts, fmt.Sprintf("Disk usage critical: %.1f%%", diskUsage))
+	}
+
+	memFree := getFreeMemoryMB()
+	if memFree >= 0 && memFree < 5 {
+		result.allNormal = false
+		result.alerts = append(result.alerts, fmt.Sprintf("Low memory: %d MB free", memFree))
+	}
+
+	return result
+}
+
+func getFreeMemoryMB() int {
+	data, err := os.ReadFile("/proc/meminfo")
+	if err != nil {
+		return -1
+	}
+
+	for _, line := range strings.Split(string(data), "\n") {
+		if strings.HasPrefix(line, "MemAvailable:") {
+			fields := strings.Fields(line)
+			if len(fields) >= 2 {
+				if kb, err := strconv.Atoi(fields[1]); err == nil {
+					return kb / 1024
+				}
+			}
+		}
+	}
+	return -1
+}
+
+func (hs *HeartbeatService) buildCustomTaskPrompt(userPrompt string) string {
+	return fmt.Sprintf(`# Heartbeat Check - Custom Tasks
+
+Current time: %s
+System Disk Status: %.1f%% (Normal)
+Memory: Sufficient
+
+All local system checks passed. Focus ONLY on custom user tasks below.
+Do NOT run disk/memory diagnostic tools - they already passed.
+
+If no tasks require execution, respond with HEARTBEAT_OK.
+
+%s
+`, time.Now().Format("2006-01-02 15:04:05"), getDiskUsage(), userPrompt)
+}
+
+func (hs *HeartbeatService) hasCustomUserTasks() bool {
+	heartbeatPath := filepath.Join(hs.workspace, "HEARTBEAT.md")
+	data, err := os.ReadFile(heartbeatPath)
+	if err != nil {
+		return false
+	}
+
+	content := string(data)
+	if strings.TrimSpace(content) == "" {
+		return false
+	}
+
+	parts := strings.SplitN(content, "---\n\n", 2)
+	if len(parts) < 2 {
+		return true
+	}
+
+	afterSeparator := strings.TrimSpace(parts[1])
+	lines := strings.Split(afterSeparator, "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		return true
+	}
+
+	return false
 }

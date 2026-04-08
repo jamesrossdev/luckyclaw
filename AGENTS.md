@@ -44,7 +44,7 @@ firmware/overlay/etc/     ← Init script + SSH banner baked into firmware rootf
 - **Init script**: Auto-starts gateway on boot with OOM protection
 - **SSH banner**: Shows ASCII art, status, memory, all commands on login
 - **Default model**: `stepfun/step-3.5-flash:free` (free tier)
-- **Defaults**: `max_tokens=16384`, `max_tool_iterations=25` (tuned for web search headroom)
+- **Defaults**: `max_tokens=16384`, `max_tool_iterations=25`, `context_window=model-specific` (queried during onboarding)
 
 ### What We Did NOT Change
 All PicoClaw channels (Telegram, Discord, QQ, LINE, Slack, WhatsApp, etc.) and tools remain in the codebase. Users can configure any provider via `config.json` directly.
@@ -86,7 +86,7 @@ A shallow clone of the upstream PicoClaw repo is kept at `picoclaw-latest/` (git
 
 ### 12. Log File Destinations & Workspace Paths
 - **Gateway log**: `/var/log/luckyclaw.log` (stdout/stderr from the init script). The init script uses an `sh -c "exec ..."` wrapper because BusyBox's `start-stop-daemon -b` redirects fds to `/dev/null` before shell redirects take effect.
-- **Heartbeat log**: `<workspace>/heartbeat.log` (written directly by the heartbeat service, not stdout).
+- **Heartbeat log**: `/oem/.luckyclaw/heartbeat.log` (outside workspace — prevents LLM from reading old error logs and wasting tokens).
 - **Runtime workspace**: `/oem/.luckyclaw/workspace/` — this is where the bot reads/writes data at runtime. `luckyclaw onboard` creates it by extracting the `workspace/` directory that is **embedded directly into the binary** via `go:embed` at compile time. `firmware/overlay/root/` is NOT involved in this — nothing reads `/root/.luckyclaw/` at runtime.
 
 ### 13. Firmware Overlay Structure
@@ -107,7 +107,21 @@ LuckyClaw is **not** trying to be PicoClaw or nanobot. It is PicoClaw's simpler,
 - ❌ **Never port**: Feature additions targeting developers or power users (MCP, vision, Web UI, system tray, new channels, new providers, model routing)
 
 When in doubt, ask: *"Would a normal person on a $10 board benefit from this?"* If the answer is no, leave it upstream.
- 
+
+### 16. Load Average Metric Inaccuracy
+The Linux load average on Luckfox Pico (RV1103) is **not an accurate measure of CPU saturation**. It often sits at ~10.0 even when the device is 99% idle. This is because ~20 RV1103-specific kernel threads (ISP, NPU, Video) frequently enter uninterruptible sleep (D-state), which Linux counts towards the load average. **Fix**: Use `top` or `mpstat` to verify actual idle percentage; do not panic over high load averages. See Lesson 17 for details on D-state threads.
+
+### 17. D-State Threads from Camera/NPU Modules (Accepted)
+The high load average (~10-11) is caused by camera/NPU kernel threads in D-state: `vcodec_thread_0`, `rknpu_power_off`, `rkisp-vir0`, `vmcu`. These are loaded by `/oem/usr/ko/insmod_ko.sh` during boot and wait for non-existent camera hardware. **Decision**: Accept the cosmetic high load average. CPU idle remains ~98%+. Use `top` to verify actual idle percentage. Per Lesson 16, load average is not an accurate measure of CPU saturation on Luckfox boards.
+
+### 18. Dynamic GOMEMLIMIT per Board Variant
+Different boards have different RAM amounts:
+- Pico Plus (64MB DDR2): 24MiB GOMEMLIMIT (prevents GC spin)
+- Pico Pro (128MB DDR3): 48MiB GOMEMLIMIT
+- Pico Max (256MB DDR3): 96MiB GOMEMLIMIT
+- Unknown/Mini boards: 50% of total RAM
+
+**Fix**: S99luckyclaw detects board model from `/proc/device-tree/model` and sets appropriate GOMEMLIMIT.
 
 ## Build & Deploy
 
@@ -150,6 +164,66 @@ luckyclaw gateway -b  # Start in background
 luckyclaw stop        # Stop cleanly
 ```
 
+## Development Commands
+
+### Running Tests
+
+```bash
+make check                    # deps + fmt + vet + test (run before commits)
+make test                     # run all tests
+go test ./pkg/extract/...     # run single package tests
+go test -run TestName ./...   # run single test by name
+go test -v ./pkg/agent/...    # verbose output
+```
+
+### Linting & Formatting
+
+```bash
+make fmt                      # format all Go code
+make vet                      # run go vet static analysis
+```
+
+## Code Style Guidelines
+
+### Imports
+Group imports: standard library first, blank line, then external packages.
+```go
+import (
+    "context"
+    "fmt"
+
+    "github.com/jamesrossdev/luckyclaw/pkg/bus"
+)
+```
+
+### Naming Conventions
+- **Exported**: `PascalCase` (e.g., `NewMessageBus`, `SendMessage`)
+- **Private**: `camelCase` (e.g., `sendCallback`, `handleIncoming`)
+- **Constants**: `UPPER_SNAKE_CASE` or `PascalCase` for enum-like values
+
+### Error Handling
+Always wrap errors with context using `%w`:
+```go
+if err != nil {
+    return fmt.Errorf("failed to validate phone: %w", err)
+}
+```
+
+### Logging
+Use structured logging with component and fields:
+```go
+logger.InfoCF("whatsapp", "message received", map[string]any{"sender": senderID})
+logger.WarnCF("whatsapp", "operation failed", map[string]any{"error": err.Error()})
+```
+
+### Comments
+**DO NOT add comments** unless explicitly requested. Code should be self-documenting through clear naming.
+
+### Types
+- Use `interface{}` for JSON tool parameters (flexible schema)
+- Use concrete types for internal APIs
+- Prefer `map[string]any` for structured log fields
+
 ### Build Distributable Firmware Image
 
 A distributable `.img` bundles the ARM binary (with `workspace/` embedded) + the init script + SSH banner into a single flashable file. Steps:
@@ -159,10 +233,8 @@ A distributable `.img` bundles the ARM binary (with `workspace/` embedded) + the
 make build-arm
 # Output: build/luckyclaw-linux-arm
 
-# 2. Copy binary into the SDK overlay (untracked — do this every time before building image)
-cp build/luckyclaw-linux-arm \
-  luckfox-pico-sdk/project/cfg/BoardConfig_IPC/overlay/luckyclaw-overlay/usr/bin/luckyclaw
-chmod +x luckfox-pico-sdk/project/cfg/BoardConfig_IPC/overlay/luckyclaw-overlay/usr/bin/luckyclaw
+# 2. Sync overlay to SDK (binary + init scripts + configs)
+./scripts/sync-overlay.sh
 
 # 3. Build the firmware image
 cd luckfox-pico-sdk && ./build.sh
@@ -172,14 +244,24 @@ cd luckfox-pico-sdk && ./build.sh
 # Rename for distribution: luckyclaw-luckfox_pico_plus_rv1103-vX.Y.Z.img
 ```
 
-> **Note:** The SDK overlay `etc/` is kept in sync with `firmware/overlay/etc/` in the repo. If you modify the init script or SSH banner, copy the changes to both locations before building.
-
 > **What's in the image:** `update.img` = kernel + rootfs (containing `/usr/bin/luckyclaw` with embedded workspace) + oem partition. When a user runs `luckyclaw onboard` after flashing, the embedded workspace is extracted to `/oem/.luckyclaw/workspace/`.
 
 ### SDK Overlay Sync
-The SDK overlay `etc/` must stay in sync with the repo:
+
+Use the sync script to keep the SDK overlay in sync with the repo:
+
+```bash
+./scripts/sync-overlay.sh
+```
+
+This syncs:
+- `firmware/overlay/etc/` → SDK overlay (init scripts, configs)
+- `build/luckyclaw-linux-arm` → SDK overlay binary
+- Adds `luckyclaw-overlay` to BoardConfigs for Plus and Pro/Max variants
+
 - `firmware/overlay/etc/` — canonical, tracked in git
-- `luckfox-pico-sdk/project/cfg/BoardConfig_IPC/overlay/luckyclaw-overlay/etc/` — SDK copy, NOT tracked in git
+- `luckfox-pico-sdk/project/cfg/BoardConfig_IPC/overlay/luckyclaw-overlay/` — SDK overlay, NOT tracked in git
+- `scripts/sync-overlay.sh` — sync automation script
 
 ## File Map
 
@@ -191,5 +273,6 @@ The SDK overlay `etc/` must stay in sync with the repo:
 | `pkg/config/config.go` | Config structure and defaults |
 | `firmware/overlay/etc/profile.d/luckyclaw-banner.sh` | SSH login banner |
 | `firmware/overlay/etc/init.d/S99luckyclaw` | Init script (auto-start) |
+| `scripts/sync-overlay.sh` | Sync overlay to SDK for building |
 | `CULLED.md` | What changed from PicoClaw and why |
 | `workspace/` | Embedded workspace templates |

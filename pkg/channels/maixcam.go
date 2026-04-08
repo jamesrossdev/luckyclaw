@@ -49,7 +49,7 @@ func (c *MaixCamChannel) Start(ctx context.Context) error {
 	}
 
 	c.listener = listener
-	c.setRunning(true)
+	c.SetRunning(true)
 
 	logger.InfoCF("maixcam", "MaixCam server listening", map[string]interface{}{
 		"host": c.config.Host,
@@ -174,7 +174,7 @@ func (c *MaixCamChannel) handlePersonDetection(msg MaixCamMessage) {
 		"h":         fmt.Sprintf("%.0f", h),
 	}
 
-	c.HandleMessage(senderID, chatID, content, []string{}, metadata)
+	c.HandleMessage(senderID, chatID, content, []string{}, metadata, "", "")
 }
 
 func (c *MaixCamChannel) handleStatusUpdate(msg MaixCamMessage) {
@@ -185,7 +185,7 @@ func (c *MaixCamChannel) handleStatusUpdate(msg MaixCamMessage) {
 
 func (c *MaixCamChannel) Stop(ctx context.Context) error {
 	logger.InfoC("maixcam", "Stopping MaixCam channel")
-	c.setRunning(false)
+	c.SetRunning(false)
 
 	if c.listener != nil {
 		c.listener.Close()

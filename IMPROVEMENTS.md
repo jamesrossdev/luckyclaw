@@ -12,46 +12,7 @@ Items listed here are planned enhancements that are not yet scheduled for implem
 
 **Blocked by**: Nothing. Can be implemented independently after Phase 12-H.
 
-## PicoClaw Upstream Bugs
 
-### Infinite Optimization Loop
-**Priority**: High
-**Description**: In `pkg/agent/loop.go` -> `summarizeSession()`, if the conversational history consists entirely of tool outputs (which causes `len(validMessages) == 0` during the extraction phase), the function returns early without invoking `al.sessions.TruncateHistory()`. This causes the token window boundary to be instantly breached again on the very next turn, locking the agent into an infinite "Memory threshold reached. Optimizing conversation history..." cycle that never actually optimizes.
-
-**Benefit**: Prevents catastrophic session corruption when LLM APIs fail or large tool exchanges dominate a short time window.
-
-**Blocked by**: Should be submitted as a PR to the [picoclaw](https://github.com/sipeed/picoclaw) upstream repository.
-
-> **Status (checked 2026-03-09):** Bug confirmed still present in picoclaw-latest at `pkg/agent/loop.go` lines 1457-1459. The `len(validMessages) == 0` early return skips `TruncateHistory()`, causing the infinite loop. We fixed this in our fork but have not yet opened a PR.
-
-## Installation / Deployment
-
-### `luckyclaw install` Command
-**Priority**: High
-**Description**: Create a new subcommand `luckyclaw install` that automates the setup of LuckyClaw on a stock Linux/Buildroot environment. It should:
-1. Extract and write the init script to `/etc/init.d/S99luckyclaw` (using `go:embed` from the binary).
-2. Extract and write the SSH banner to `/etc/profile.d/luckyclaw-banner.sh`.
-3. Configure the binary for OOM protection (calling `oom_score_adj` logic).
-4. Ensure the default `/oem/.luckyclaw/workspace` exists (calling `onboard` logic if missing).
-
-**Benefit**: Enables a "one-liner" installation for users who already have a working board running stock firmware, without requiring them to reflash using our custom image. Supports the "conservative brother" vision by making the tool easier to adopt on any ARM/Linux hardware.
-
-**Blocked by**: Nothing.
-
-### OTA Binary Updates (No Reflash)
-**Priority**: Medium
-**Description**: The LuckyClaw binary at `/usr/bin/luckyclaw` can be replaced via SCP without reflashing the entire firmware, since user data lives on `/oem/.luckyclaw/` (a separate partition). An `luckyclaw update` command could check the GitHub Releases API for the latest version, download the matching ARM binary, replace itself, and restart — all without touching config, sessions, cron jobs, or memory.
-
-**Benefit**: Users can update without Windows, without SOCToolKit, and without losing any data. Dramatically lowers the friction of staying current.
-
-**Blocked by**: Needs a stable releases workflow publishing individual ARM binaries (not just full `.img` files). Also needs a version comparison check (`luckyclaw version` already embeds the version tag).
-
-### Open-Source Cross-Platform Flashing Tool
-**Priority**: Low
-**Description**: Currently, flashing the eMMC requires using the proprietary Rockchip `SOCToolKit`, which is Windows-only. We should develop or adopt an open-source, cross-platform CLI tool (e.g., in Python or Go) that can communicate with the Rockchip MaskROM protocol to flash `update.img` directly from Linux and macOS without needing Windows VMs or proprietary software.
-
-**Benefit**: Dramatically simplifies the onboarding process for non-Windows users and allows for scripted/automated deployments.
-**Blocked by**: Reverse engineering of Rockchip protocols or integrating existing open-source alternatives like `rkdeveloptool`.
 
 ## Performance Optimizations
 
@@ -61,17 +22,6 @@ Items listed here are planned enhancements that are not yet scheduled for implem
 
 **Benefit**: Eliminates ~5 file reads and ~10KB of string allocations per message. On the Luckfox's SPI NAND flash (slower than eMMC), this could save 5-10ms per message.
 
-### Cache Tool Provider Definitions
-**Priority**: Low
-**Description**: `al.tools.ToProviderDefs()` in `runLLMIteration` rebuilds the full tool definition JSON on every LLM iteration (up to 15 per message). The tool registry doesn't change at runtime, so this can be computed once at startup and cached.
-
-**Benefit**: Avoids rebuilding ~2KB of JSON schema per iteration. Minor memory saving but reduces GC pressure.
-
-### Use `json.Marshal` Instead of `json.MarshalIndent` for Session Save
-**Priority**: Low
-**Description**: `SessionManager.Save()` uses `json.MarshalIndent` for pretty-printing. This is ~2x slower than `json.Marshal` and produces larger files on flash storage.
-
-**Benefit**: Faster session saves, smaller session files on limited SPI NAND storage.
 
 ### Pre-allocate HTTP Response Buffer
 **Priority**: Low
@@ -98,14 +48,232 @@ Items listed here are planned enhancements that are not yet scheduled for implem
 
 ## Session Management
 
-### Configurable Summarization Thresholds
-**Priority**: Medium
-**Description**: Port `SummarizeMessageThreshold` and `SummarizeTokenPercent` from picoclaw upstream into our config struct. Currently hardcoded at 20 messages / 75% of context window in `loop.go`. Making these configurable allows users to tune conversation memory behavior without rebuilding.
-
-**Benefit**: Power users can trade token cost for longer conversation context, or reduce it on very small models.
 
 ### Improved Token Estimator
 **Priority**: Low
 **Description**: Port `utf8.RuneCountInString` with 2.5 chars/token ratio from picoclaw upstream (vs our current `len` with 3 chars/token). More accurate for mixed-language content and CJK text.
 
 **Benefit**: Better context budget estimation, especially for non-English conversations.
+
+## Context Management
+
+### Pre-emptive Context Compression
+**Priority**: Medium
+**Description**: Before sending messages to the LLM, estimate the token count and proactively compress history if it exceeds the model's context window (minus a safety margin). Currently, compression only happens AFTER a 400 error from the API.
+
+**Implementation**:
+1. Add `EstimateTokens(messages []providers.Message) int` function using character count × ratio
+2. In `runAgentLoop`, before calling `provider.Chat()`, check: `if estimatedTokens > (contextWindow * 0.85)` then trigger compression
+3. Log the pre-emptive compression for debugging
+
+**Benefit**: Avoids wasted API calls and provides smoother user experience. Currently users see "Context window exceeded" message before compression kicks in.
+
+**Blocked by**: Nothing. Can be implemented independently.
+
+## Skill System
+
+### Channel-Based Skill Filtering
+**Priority**: Medium
+**Description**: Filter skills by message origin channel to prevent cross-channel skill leakage. Currently, all skills are visible to the LLM regardless of which channel the message came from, causing the LLM to read Discord-specific moderation content when responding to WhatsApp users.
+
+**Implementation**:
+
+1. **Add `channels:` field to SKILL.md frontmatter (YAML)**:
+   ```yaml
+   ---
+   name: discord-mod
+   description: Server FAQ, channel directory, and rules
+   channels: [discord]
+   ---
+   ```
+   - `channels: [discord]` → only visible on Discord
+   - `channels: [whatsapp]` → only visible on WhatsApp
+   - No `channels:` field or `channels: [all]` → visible on all channels
+
+2. **Modify `SkillMetadata` struct** in `pkg/skills/loader.go`:
+   ```go
+   type SkillMetadata struct {
+       Name        string   `json:"name"`
+       Description string   `json:"description"`
+       Channels    []string `json:"channels"` // Optional: channels this skill applies to
+   }
+   ```
+
+3. **Modify `BuildSkillsSummary()`** in `pkg/skills/loader.go`:
+   - Accept `channel string` parameter
+   - Filter skills: `skill.Channels == nil || contains(skill.Channels, channel) || contains(skill.Channels, "all")`
+
+4. **Update `BuildSystemPrompt()`** in `pkg/agent/context.go`:
+   - Pass `channel` parameter to `BuildSkillsSummary(channel)`
+
+5. **Skill channel assignments** (initial):
+   - `discord-mod/SKILL.md` → `channels: [discord]`
+   - `whatsapp/SKILL.md` → `channels: [whatsapp]`
+   - `weather/SKILL.md` → omitempty (all channels)
+   - `summarize/SKILL.md` → omitempty (all channels)
+   - `hardware/SKILL.md` → omitempty (all channels)
+
+**Files affected**:
+- `workspace/skills/*/SKILL.md` — add `channels:` frontmatter
+- `pkg/skills/loader.go` — filter by channel
+- `pkg/agent/context.go` — pass channel to skills loader
+
+**Benefit**: Prevents LLM from reading Discord moderation rules when responding to WhatsApp users, and vice versa. Reduces irrelevant context in system prompt, saves tokens.
+
+**Blocked by**: Nothing. Can be implemented independently.
+
+## Process Management
+
+### PID Validation & Stale File Cleanup
+**Priority**: Medium
+**Description**: Port `pkg/pid` from PicoClaw for robust process management.
+
+PicoClaw adds:
+- Token-based PID ownership validation
+- Stale PID file detection and cleanup on startup
+- Version field for compatibility checking
+- Health endpoint includes PID for runtime verification
+- Prevents stop/restart when process isn't the gateway
+
+**Implementation**:
+
+1. **Create `pkg/pid/pidfile.go`**:
+   ```go
+   type PidFileData struct {
+       PID     int    `json:"pid"`
+       Token   string `json:"token"`   // Cryptographic token for ownership
+       Version string `json:"version"`
+       Port    int    `json:"port"`
+       Host    string `json:"host"`
+   }
+   
+   func WritePidFile(homePath, host string, port int) (*PidFileData, error)
+   func ReadPidFile(homePath string) (*PidFileData, error)
+   func RemovePidFileIfPID(homePath string, pid int) error
+   func IsRunning(data *PidFileData) bool
+   ```
+
+2. **Update `cmd/luckyclaw/main.go`**:
+   - Replace simple PID file read with validated `ReadPidFile()`
+   - Add stale file cleanup on `stopCmd()` and `restartCmd()`
+   - Validate PID ownership before sending signals
+
+3. **Update `firmware/overlay/etc/init.d/S99luckyclaw`**:
+   - Check if PID file exists and is valid before starting
+   - Clean stale PID files as part of start sequence
+
+**RAM Impact**: Minimal (small JSON file)
+
+**Blocked by**: Nothing. Can be implemented independently.
+
+## Extensibility
+
+### Model Context Protocol (MCP) Support
+**Priority**: Medium
+**Description**: Port MCP support from PicoClaw. MCP allows users to extend LuckyClaw with external tool servers via Anthropic's open standard protocol.
+
+**What it enables**:
+- Filesystem access tools
+- Database connectors
+- Custom API integrations
+- Community MCP servers
+- Browser automation (via `agent-browser` MCP server)
+
+**Implementation**:
+
+1. **Add `pkg/mcp/` package** (from PicoClaw):
+   ```
+   pkg/mcp/
+   ├── manager.go              // MCP server lifecycle management
+   └── isolated_command_transport.go  // Process isolation for MCP servers
+   ```
+
+2. **Add MCP config to `config.json`**:
+   ```json
+   {
+     "mcp": {
+       "servers": [
+         {
+           "name": "filesystem",
+           "command": "/usr/local/bin/filesystem-server",
+           "args": ["--path", "/oem/.luckyclaw/workspace"]
+         }
+       ]
+     }
+   }
+   ```
+
+3. **Wire MCP tools into agent tool system**:
+   - Load MCP tools during gateway startup
+   - Convert MCP tool definitions to LuckyClaw tool format
+   - Handle MCP JSON-RPC protocol for tool execution
+
+4. **Ship with zero servers by default**:
+   - Minimal base overhead (~100KB)
+   - Users can add servers as needed via config
+
+**RAM Impact**: Minimal base overhead (~100KB). Scales with connected servers. Not recommended for Pico Plus (64MB RAM). Suitable for Pro/Max.
+
+**Blocked by**: Nothing. Can be implemented independently.
+
+## New Skills
+
+### agent-browser Skill
+**Priority**: Low (Pro/Max only)
+**Description**: Add browser automation skill from PicoClaw for web scraping and form filling.
+
+**Source**: `picoclaw-latest/workspace/skills/agent-browser/SKILL.md`
+
+**What it enables**:
+- Navigate websites
+- Fill forms and click buttons
+- Take screenshots
+- Extract data from web pages
+- Test web applications
+
+**Requirements**:
+- `agent-browser` npm package: `npm install -g agent-browser`
+- Chromium browser (~100MB RAM)
+
+**RAM Impact**: ~100MB+ (Chromium + Node). **Pico Plus (64MB) is NOT sufficient.**
+
+**Files affected**:
+- `workspace/skills/agent-browser/SKILL.md` — add from PicoClaw
+
+**Note**: Document RAM requirements in skill. Only recommend for Pro/Max boards.
+
+**Blocked by**: Nothing. Not recommended for Pico Plus.
+
+### GitHub PR Review Skill
+**Priority**: Low
+**Description**: Add comprehensive PR review agent skill inspired by ZeroClaw's `github-pr-review`.
+
+**Source Inspiration**: `zeroclaw-latest/.claude/skills/github-pr-review/SKILL.md`
+
+**What it enables**:
+- Autonomous PR triage and review
+- Check CI status and template compliance
+- Risk-routed code review depth
+- Create worktrees for testing
+- Post structured review comments with severity tags
+- Never merges (leaves to human maintainer)
+
+**ZeroClaw's workflow phases**:
+| Phase | What happens | Key gates |
+|-------|-------------|-----------|
+| 1. Triage | Read PR, comprehension summary, draft/assignee/path/CI checks | Draft → stop |
+| 2. Gate Checks | Malicious scan, template, size, privacy, duplicates | Any gate fail → block/close |
+| 3. Review | Risk-routed depth, code review with severity-tagged comments | Format: `[blocking]/[suggestion]/[question]` |
+| 4. Final Review | Re-read for changes, handle new commits | Three outcomes: ready/needs-author/needs-maintainer |
+| 5. Report | Session report, delete worktree | Every field filled |
+
+**Implementation approach**:
+1. Add `workspace/skills/github-pr-review/SKILL.md`
+2. Leverage existing `github` skill's `gh` CLI foundation
+3. Focus on PR review workflow, not full queue processing
+
+**RAM Impact**: Minimal (uses `gh` CLI, no additional processes)
+
+**Blocked by**: Nothing. Can be implemented independently.
+
+**Reference**: [ZeroClaw PR Review Skill](https://github.com/zeroclaw-labs/zeroclaw/blob/master/.claude/skills/github-pr-review/SKILL.md)

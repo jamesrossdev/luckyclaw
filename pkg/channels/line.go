@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"strings"
 	"sync"
 	"time"
@@ -111,7 +110,7 @@ func (c *LINEChannel) Start(ctx context.Context) error {
 		}
 	}()
 
-	c.setRunning(true)
+	c.SetRunning(true)
 	logger.InfoC("line", "LINE channel started (Webhook Mode)")
 	return nil
 }
@@ -168,7 +167,7 @@ func (c *LINEChannel) Stop(ctx context.Context) error {
 		}
 	}
 
-	c.setRunning(false)
+	c.SetRunning(false)
 	logger.InfoC("line", "LINE channel stopped")
 	return nil
 }
@@ -307,18 +306,9 @@ func (c *LINEChannel) processEvent(event lineEvent) {
 
 	var content string
 	var mediaPaths []string
+	// Temp file cleanup is handled centrally by loop.go after LLM processing.
+	// Do NOT defer os.Remove here — it races with the provider reading the file.
 	localFiles := []string{}
-
-	defer func() {
-		for _, file := range localFiles {
-			if err := os.Remove(file); err != nil {
-				logger.DebugCF("line", "Failed to cleanup temp file", map[string]interface{}{
-					"file":  file,
-					"error": err.Error(),
-				})
-			}
-		}
-	}()
 
 	switch msg.Type {
 	case "text":
@@ -377,7 +367,7 @@ func (c *LINEChannel) processEvent(event lineEvent) {
 	// Show typing/loading indicator (requires user ID, not group ID)
 	c.sendLoading(senderID)
 
-	c.HandleMessage(senderID, chatID, content, mediaPaths, metadata)
+	c.HandleMessage(senderID, chatID, content, mediaPaths, metadata, "", "")
 }
 
 // isBotMentioned checks if the bot is mentioned in the message.

@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/jamesrossdev/luckyclaw/pkg/bus"
+	"github.com/jamesrossdev/luckyclaw/pkg/logger"
 )
 
 type Channel interface {
@@ -82,7 +83,12 @@ func (c *BaseChannel) IsAllowed(senderID string) bool {
 	return false
 }
 
-func (c *BaseChannel) HandleMessage(senderID, chatID, content string, media []string, metadata map[string]string) {
+func (c *BaseChannel) HandleMessage(senderID, chatID, content string, media []string, metadata map[string]string, stanzaID string, replyToParticipant string) {
+	logger.DebugCF("channels", "HandleMessage reply-to", map[string]any{
+		"stanzaID":           stanzaID,
+		"replyToParticipant": replyToParticipant,
+	})
+
 	if !c.IsAllowed(senderID) {
 		return
 	}
@@ -91,18 +97,20 @@ func (c *BaseChannel) HandleMessage(senderID, chatID, content string, media []st
 	sessionKey := fmt.Sprintf("%s:%s", c.name, chatID)
 
 	msg := bus.InboundMessage{
-		Channel:    c.name,
-		SenderID:   senderID,
-		ChatID:     chatID,
-		Content:    content,
-		Media:      media,
-		SessionKey: sessionKey,
-		Metadata:   metadata,
+		Channel:            c.name,
+		SenderID:           senderID,
+		ChatID:             chatID,
+		Content:            content,
+		Media:              media,
+		SessionKey:         sessionKey,
+		Metadata:           metadata,
+		StanzaID:           stanzaID,
+		ReplyToParticipant: replyToParticipant,
 	}
 
 	c.bus.PublishInbound(msg)
 }
 
-func (c *BaseChannel) setRunning(running bool) {
+func (c *BaseChannel) SetRunning(running bool) {
 	c.running = running
 }

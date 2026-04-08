@@ -54,8 +54,8 @@ func TestFilesystemTool_ReadFile_NotFound(t *testing.T) {
 		t.Errorf("Expected error for missing file, got IsError=false")
 	}
 
-	// Should contain error message
-	if !strings.Contains(result.ForLLM, "failed to read") && !strings.Contains(result.ForUser, "failed to read") {
+	// Should contain error message (either "failed to stat" or "failed to read")
+	if !strings.Contains(result.ForLLM, "failed to") && !strings.Contains(result.ForUser, "failed to") {
 		t.Errorf("Expected error message, got ForLLM: %s, ForUser: %s", result.ForLLM, result.ForUser)
 	}
 }
@@ -245,6 +245,121 @@ func TestFilesystemTool_ListDir_DefaultPath(t *testing.T) {
 	// Should use "." as default path
 	if result.IsError {
 		t.Errorf("Expected success with default path '.', got IsError=true: %s", result.ForLLM)
+	}
+}
+
+// TestFilesystemTool_ReadFile_BinaryFile verifies binary file rejection
+func TestFilesystemTool_ReadFile_BinaryFile(t *testing.T) {
+	tmpDir := t.TempDir()
+	testFile := filepath.Join(tmpDir, "binary.bin")
+	// Write binary content with null bytes
+	binaryContent := []byte{0x00, 0x01, 0x02, 0xFF, 0xFE, 0x00, 0x01}
+	os.WriteFile(testFile, binaryContent, 0644)
+
+	tool := &ReadFileTool{}
+	ctx := context.Background()
+	args := map[string]interface{}{
+		"path": testFile,
+	}
+
+	result := tool.Execute(ctx, args)
+
+	if !result.IsError {
+		t.Errorf("Expected error for binary file, got IsError=false")
+	}
+	if !strings.Contains(result.ForLLM, "binary files not supported") {
+		t.Errorf("Expected 'binary files not supported' error, got: %s", result.ForLLM)
+	}
+}
+
+// TestFilesystemTool_ReadFile_BinaryFileMidContent verifies binary detection even if header is text
+func TestFilesystemTool_ReadFile_BinaryFileMidContent(t *testing.T) {
+	tmpDir := t.TempDir()
+	testFile := filepath.Join(tmpDir, "mixed.bin")
+	// Text header, then binary, then more text
+	content := []byte("Hello World\x00\x01\x02\xFF Binary Data")
+	os.WriteFile(testFile, content, 0644)
+
+	tool := &ReadFileTool{}
+	ctx := context.Background()
+	args := map[string]interface{}{
+		"path": testFile,
+	}
+
+	result := tool.Execute(ctx, args)
+
+	if !result.IsError {
+		t.Errorf("Expected error for mixed binary file, got IsError=false")
+	}
+	if !strings.Contains(result.ForLLM, "binary files not supported") {
+		t.Errorf("Expected 'binary files not supported' error, got: %s", result.ForLLM)
+	}
+}
+
+// TestFilesystemTool_ReadFile_FileTooLarge verifies file size limit
+func TestFilesystemTool_ReadFile_FileTooLarge(t *testing.T) {
+	tmpDir := t.TempDir()
+	testFile := filepath.Join(tmpDir, "large.txt")
+	// Write content larger than maxReadFileSize (100KB)
+	largeContent := make([]byte, 101*1024) // 101KB
+	os.WriteFile(testFile, largeContent, 0644)
+
+	tool := &ReadFileTool{}
+	ctx := context.Background()
+	args := map[string]interface{}{
+		"path": testFile,
+	}
+
+	result := tool.Execute(ctx, args)
+
+	if !result.IsError {
+		t.Errorf("Expected error for large file, got IsError=false")
+	}
+	if !strings.Contains(result.ForLLM, "file too large") {
+		t.Errorf("Expected 'file too large' error, got: %s", result.ForLLM)
+	}
+}
+
+// TestFilesystemTool_ReadFile_ExactlyAtLimit verifies file exactly at limit works
+func TestFilesystemTool_ReadFile_ExactlyAtLimit(t *testing.T) {
+	tmpDir := t.TempDir()
+	testFile := filepath.Join(tmpDir, "exact.txt")
+	// Write exactly 100KB of text
+	content := make([]byte, 100*1024)
+	for i := range content {
+		content[i] = 'A'
+	}
+	os.WriteFile(testFile, content, 0644)
+
+	tool := &ReadFileTool{}
+	ctx := context.Background()
+	args := map[string]interface{}{
+		"path": testFile,
+	}
+
+	result := tool.Execute(ctx, args)
+
+	if result.IsError {
+		t.Errorf("Expected success for file at exact limit, got IsError=true: %s", result.ForLLM)
+	}
+}
+
+// TestFilesystemTool_ReadFile_WhitespaceOnly verifies whitespace-only file is not rejected
+func TestFilesystemTool_ReadFile_WhitespaceOnly(t *testing.T) {
+	tmpDir := t.TempDir()
+	testFile := filepath.Join(tmpDir, "whitespace.txt")
+	os.WriteFile(testFile, []byte("   \t\n\r   "), 0644)
+
+	tool := &ReadFileTool{}
+	ctx := context.Background()
+	args := map[string]interface{}{
+		"path": testFile,
+	}
+
+	result := tool.Execute(ctx, args)
+
+	if result.IsError {
+		t.Errorf("Expected success for whitespace file, got IsError=true: %s", result.ForLLM)
 	}
 }
 

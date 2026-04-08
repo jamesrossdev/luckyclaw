@@ -9,11 +9,10 @@ This guide covers flashing the LuckyClaw firmware to a Luckfox Pico board's eMMC
 >
 > Download the image matching your board from the [Releases](https://github.com/jamesrossdev/luckyclaw/releases) page.
 
-> [!IMPORTANT]
-> Only the **Luckfox Pico Plus** (RV1103), **Luckfox Pico Pro** (RV1106), and **Luckfox Pico Max** (RV1106) are supported at this time.
-
 > [!WARNING]
 > Flashing replaces the entire filesystem on the board. All existing configuration, memories, sessions, and cron jobs will be lost. If you are upgrading from a previous version, back up your data first — see [Backup and Restore](BACKUP_RESTORE.md).
+
+---
 
 ### Hardware
 

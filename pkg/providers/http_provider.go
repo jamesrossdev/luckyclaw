@@ -9,11 +9,14 @@ package providers
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -64,9 +67,118 @@ func (p *HTTPProvider) Chat(ctx context.Context, messages []Message, tools []Too
 		}
 	}
 
+	var formattedMessages []interface{}
+	for _, msg := range messages {
+		formattedMsg := map[string]interface{}{
+			"role": msg.Role,
+		}
+
+		if len(msg.MediaPaths) > 0 {
+			var contentArray []interface{}
+			if msg.Content != "" {
+				contentArray = append(contentArray, map[string]interface{}{
+					"type": "text",
+					"text": msg.Content,
+				})
+			}
+
+			for _, imgPath := range msg.MediaPaths {
+				// Handle both local files and direct URLs
+				if strings.HasPrefix(imgPath, "http://") || strings.HasPrefix(imgPath, "https://") {
+					contentArray = append(contentArray, map[string]interface{}{
+						"type": "image_url",
+						"image_url": map[string]string{
+							"url": imgPath,
+						},
+					})
+					continue
+				}
+
+				// Cap local media at 2MB to avoid triple-copy OOM on the 24MiB heap:
+				// os.ReadFile → base64 string (×1.37) → JSON marshal (×1) ≈ >11MB for a 5MB file.
+				const maxMediaBytes = 2 * 1024 * 1024
+				if fi, statErr := os.Stat(imgPath); statErr != nil || fi.Size() > maxMediaBytes {
+					contentArray = append(contentArray, map[string]interface{}{
+						"type": "text",
+						"text": fmt.Sprintf("[media too large to embed: %s]", filepath.Base(imgPath)),
+					})
+					continue
+				}
+				// Detect mimetype and decide payload type
+				mimeType := ""
+				payloadType := "image_url" // Default to image_url for standard vision
+				imgPathLower := strings.ToLower(imgPath)
+
+				// Image formats (use image_url)
+				if strings.HasSuffix(imgPathLower, ".jpg") || strings.HasSuffix(imgPathLower, ".jpeg") {
+					mimeType = "image/jpeg"
+				} else if strings.HasSuffix(imgPathLower, ".png") {
+					mimeType = "image/png"
+				} else if strings.HasSuffix(imgPathLower, ".gif") {
+					mimeType = "image/gif"
+				} else if strings.HasSuffix(imgPathLower, ".webp") {
+					mimeType = "image/webp"
+
+					// Document formats (use type: "file" per OpenRouter spec for binary docs)
+					// Note: DOCX/XLSX/PPTX are now extracted to text in whatsapp.go
+					// Only PDF goes through the file-parser plugin
+				} else if strings.HasSuffix(imgPathLower, ".pdf") {
+					mimeType = "application/pdf"
+					payloadType = "file"
+				}
+
+				// If we don't recognize the type, omit to avoid provider 400 errors.
+				// (Plain text/code should have been natively ingested in whatsapp.go).
+				if mimeType == "" {
+					contentArray = append(contentArray, map[string]interface{}{
+						"type": "text",
+						"text": fmt.Sprintf("[attachment omitted: unsupported format %s]", filepath.Base(imgPath)),
+					})
+					continue
+				}
+
+				if imgData, err := os.ReadFile(imgPath); err == nil {
+					base64Str := base64.StdEncoding.EncodeToString(imgData)
+					dataURL := fmt.Sprintf("data:%s;base64,%s", mimeType, base64Str)
+
+					if payloadType == "file" {
+						// OpenRouter native file format
+						contentArray = append(contentArray, map[string]interface{}{
+							"type": "file",
+							"file": map[string]string{
+								"file_data": dataURL,
+								"filename":  filepath.Base(imgPath),
+							},
+						})
+					} else {
+						// Standard OpenAI vision format
+						contentArray = append(contentArray, map[string]interface{}{
+							"type": "image_url",
+							"image_url": map[string]string{
+								"url": dataURL,
+							},
+						})
+					}
+				}
+			}
+			formattedMsg["content"] = contentArray
+		} else {
+			formattedMsg["content"] = msg.Content
+		}
+
+		if len(msg.ToolCalls) > 0 {
+			formattedMsg["tool_calls"] = msg.ToolCalls
+		}
+		if msg.ToolCallID != "" {
+			formattedMsg["tool_call_id"] = msg.ToolCallID
+		}
+
+		formattedMessages = append(formattedMessages, formattedMsg)
+	}
+
 	requestBody := map[string]interface{}{
 		"model":    model,
-		"messages": messages,
+		"messages": formattedMessages,
 	}
 
 	if len(tools) > 0 {
@@ -91,6 +203,17 @@ func (p *HTTPProvider) Chat(ctx context.Context, messages []Message, tools []Too
 		} else {
 			requestBody["temperature"] = temperature
 		}
+	}
+
+	// Enable file-parser plugin for document support (PDF, DOCX, etc.)
+	// This allows OpenRouter to parse documents for models that don't natively support them
+	requestBody["plugins"] = []map[string]interface{}{
+		{
+			"id": "file-parser",
+			"pdf": map[string]string{
+				"engine": "cloudflare-ai",
+			},
+		},
 	}
 
 	jsonData, err := json.Marshal(requestBody)

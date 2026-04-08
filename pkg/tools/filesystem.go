@@ -1,11 +1,17 @@
 package tools
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+)
+
+const (
+	maxReadFileSize = 100 * 1024 // 100KB max file size
+	binaryCheckSize = 512        // bytes to check for null bytes
 )
 
 // validatePath ensures the given path is within the workspace if restrict is true.
@@ -118,9 +124,27 @@ func (t *ReadFileTool) Execute(ctx context.Context, args map[string]interface{})
 		return ErrorResult(err.Error())
 	}
 
+	// Check file size before reading
+	info, err := os.Stat(resolvedPath)
+	if err != nil {
+		return ErrorResult(fmt.Sprintf("failed to stat file: %v", err))
+	}
+	if info.Size() > maxReadFileSize {
+		return ErrorResult(fmt.Sprintf("file too large (%d bytes, max %d bytes)", info.Size(), maxReadFileSize))
+	}
+
 	content, err := os.ReadFile(resolvedPath)
 	if err != nil {
 		return ErrorResult(fmt.Sprintf("failed to read file: %v", err))
+	}
+
+	// Check for binary content (null bytes in first binaryCheckSize bytes)
+	checkSize := binaryCheckSize
+	if len(content) < checkSize {
+		checkSize = len(content)
+	}
+	if bytes.Contains(content[:checkSize], []byte{0}) {
+		return ErrorResult("binary files not supported")
 	}
 
 	return NewToolResult(string(content))

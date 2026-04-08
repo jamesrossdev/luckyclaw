@@ -3,7 +3,6 @@ package channels
 import (
 	"context"
 	"fmt"
-	"os"
 	"strings"
 	"time"
 
@@ -68,7 +67,7 @@ func (c *DiscordChannel) Start(ctx context.Context) error {
 		return fmt.Errorf("failed to open discord session: %w", err)
 	}
 
-	c.setRunning(true)
+	c.SetRunning(true)
 
 	botUser, err := c.session.User("@me")
 	if err != nil {
@@ -84,7 +83,7 @@ func (c *DiscordChannel) Start(ctx context.Context) error {
 
 func (c *DiscordChannel) Stop(ctx context.Context) error {
 	logger.InfoC("discord", "Stopping Discord bot")
-	c.setRunning(false)
+	c.SetRunning(false)
 
 	if err := c.session.Close(); err != nil {
 		return fmt.Errorf("failed to close discord session: %w", err)
@@ -397,17 +396,8 @@ func (c *DiscordChannel) handleMessage(s *discordgo.Session, m *discordgo.Messag
 	mediaPaths := make([]string, 0, len(m.Attachments))
 	localFiles := make([]string, 0, len(m.Attachments))
 
-	// Ensure temp files are cleaned up on function return.
-	defer func() {
-		for _, file := range localFiles {
-			if err := os.Remove(file); err != nil {
-				logger.DebugCF("discord", "Failed to cleanup temp file", map[string]any{
-					"file":  file,
-					"error": err.Error(),
-				})
-			}
-		}
-	}()
+	// Temp file cleanup is handled centrally by loop.go after LLM processing.
+	// Do NOT defer os.Remove here — it races with the provider reading the file.
 
 	for _, attachment := range m.Attachments {
 		isAudio := utils.IsAudioFile(attachment.Filename, attachment.ContentType)
@@ -493,7 +483,7 @@ func (c *DiscordChannel) handleMessage(s *discordgo.Session, m *discordgo.Messag
 	// Trigger "is typing" indicator while the agent processes this message
 	s.ChannelTyping(m.ChannelID)
 
-	c.HandleMessage(senderID, m.ChannelID, content, mediaPaths, metadata)
+	c.HandleMessage(senderID, m.ChannelID, content, mediaPaths, metadata, "", "")
 }
 
 func (c *DiscordChannel) downloadAttachment(url, filename string) string {

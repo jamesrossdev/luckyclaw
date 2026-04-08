@@ -1,8 +1,22 @@
 #!/bin/sh
-# LuckyClaw SSH login banner
-# Shown when user SSHs into the device
+# LuckyClaw SSH login banner with dynamic board detection
+# Shows hardware info, status, and available commands
 
 export PATH=$PATH:/usr/local/bin
+
+# Memory-based board detection (stable, ignores device tree quirks)
+TOTAL_MEM=$(grep MemTotal /proc/meminfo | awk '{print int($2/1024)}')
+if [ "$TOTAL_MEM" -gt 200 ]; then
+    BOARD_MODEL="Pico Max"
+elif [ "$TOTAL_MEM" -gt 60 ]; then
+    BOARD_MODEL="Pico Pro"
+else
+    BOARD_MODEL="Pico Plus"
+fi
+
+MEM_AVAIL=$(grep MemAvailable /proc/meminfo | awk '{print int($2/1024)}')
+
+CURRENT_GOMEMLIMIT=$(cat /proc/$(pidof luckyclaw 2>/dev/null | awk '{print $1}')/environ 2>/dev/null | tr '\0' '\n' | grep GOMEMLIMIT | cut -d= -f2 || echo "")
 
 cat << 'BANNER'
 
@@ -14,7 +28,6 @@ cat << 'BANNER'
                       |___/
 BANNER
 
-# Show version if available
 if command -v luckyclaw > /dev/null 2>&1; then
     VER=$(luckyclaw version 2>/dev/null | head -1)
     echo "  $VER"
@@ -23,20 +36,20 @@ else
 fi
 
 echo ""
+echo "  Board:     ${BOARD_MODEL:-Unknown Luckfox Pico}"
+echo "  Memory:    ${MEM_AVAIL}MB available / ${TOTAL_MEM}MB total"
 
-# Show gateway status
 if pidof luckyclaw > /dev/null 2>&1; then
-    PID=$(pidof luckyclaw)
+    PID=$(pidof luckyclaw 2>/dev/null | awk '{print $1}')
     MEM=$(grep VmRSS /proc/$PID/status 2>/dev/null | awk '{print int($2/1024)"MB"}')
-    echo "  Gateway: running (PID $PID, ${MEM})"
+    echo "  Gateway:   running (PID $PID, ${MEM} RSS)"
 else
-    echo "  Gateway: stopped"
+    echo "  Gateway:   stopped"
 fi
 
-# Show memory
-MEM_AVAIL=$(grep MemAvailable /proc/meminfo | awk '{print int($2/1024)}')
-MEM_TOTAL=$(grep MemTotal /proc/meminfo | awk '{print int($2/1024)}')
-echo "  Memory:  ${MEM_AVAIL}MB available / ${MEM_TOTAL}MB total"
+if [ -n "$CURRENT_GOMEMLIMIT" ]; then
+    echo "  MemLimit:  $CURRENT_GOMEMLIMIT"
+fi
 
 echo ""
 echo "  Commands:"
