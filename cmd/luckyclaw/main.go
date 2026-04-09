@@ -56,7 +56,7 @@ import (
 var embeddedFiles embed.FS
 
 var (
-	version   = "v0.2.2"
+	version   = "v0.2.3"
 	gitCommit string
 	buildTime string
 	goVersion string
@@ -238,6 +238,8 @@ func main() {
 		printHelp()
 	case "config-reset":
 		configResetCmd()
+	case "set-ip":
+		setIPCmd()
 	default:
 		fmt.Printf("Unknown command: %s\n", command)
 		printHelp()
@@ -262,6 +264,8 @@ func printHelp() {
 	fmt.Println("  migrate       Migrate from OpenClaw to LuckyClaw")
 	fmt.Println("  skills        Manage skills (install, list, remove)")
 	fmt.Println("  config-reset  Safely delete your config.json (API keys/models)")
+	fmt.Println("  set-ip        Set static IP address (auto-detects gateway/subnet)")
+	fmt.Println("  set-ip --dhcp Restore DHCP (automatic IP)")
 	fmt.Println("  version       Show version information")
 	fmt.Println("  help          Show this help message")
 }
@@ -2290,6 +2294,255 @@ func installCmd() {
 
 	fmt.Println("\n  ✓ Installation complete.")
 	fmt.Println("  You can now start LuckyClaw via: /etc/init.d/S99luckyclaw start")
+}
+
+// setIPCmd handles setting a static IP address or restoring DHCP.
+func setIPCmd() {
+	if len(os.Args) >= 3 && os.Args[2] == "--dhcp" {
+		restoreDHCP()
+		return
+	}
+
+	if len(os.Args) < 3 {
+		fmt.Println("Usage: luckyclaw set-ip <IP_ADDRESS>")
+		fmt.Println("       luckyclaw set-ip --dhcp  (restore DHCP)")
+		fmt.Println()
+		showSetIPHelp()
+		return
+	}
+
+	newIP := os.Args[2]
+
+	// Auto-detect current network settings
+	gateway, netmask, currentIP, err := detectNetworkSettings()
+	if err != nil {
+		fmt.Printf("Error detecting network settings: %v\n", err)
+		fmt.Println("Use: luckyclaw set-ip <IP_ADDRESS>")
+		os.Exit(1)
+	}
+
+	// Validate new IP is in same subnet
+	if !validateIPSubnet(newIP, gateway, netmask) {
+		fmt.Printf("Error: IP %s is not in the same subnet as gateway %s\n", newIP, gateway)
+		fmt.Println("The IP must be in the same subnet (first 3 octets must match gateway).")
+		os.Exit(1)
+	}
+
+	// Calculate broadcast address
+	broadcast := calculateBroadcast(newIP, netmask)
+
+	// Apply the static IP
+	fmt.Printf("  Current IP:  %s\n", currentIP)
+	fmt.Printf("  New IP:      %s/%d\n", newIP, countCIDRBits(netmask))
+	fmt.Printf("  Gateway:     %s\n", gateway)
+	fmt.Printf("  Netmask:     %s\n", netmask)
+	fmt.Println()
+
+	// Write the new interfaces file
+	interfacesContent := fmt.Sprintf(`auto eth0
+iface eth0 inet static
+    address %s
+    netmask %s
+    gateway %s
+`, newIP, netmask, gateway)
+
+	err = os.WriteFile("/etc/network/interfaces", []byte(interfacesContent), 0644)
+	if err != nil {
+		fmt.Printf("Error writing /etc/network/interfaces: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Println("  ✓ Network config written to /etc/network/interfaces")
+
+	// Kill udhcpc immediately
+	exec.Command("killall", "-9", "udhcpc").Run()
+
+	// Apply the new IP
+	exec.Command("ip", "addr", "flush", "dev", "eth0").Run()
+	exec.Command("ip", "addr", "add", fmt.Sprintf("%s/%s", newIP, netmask), "brd", broadcast, "dev", "eth0").Run()
+	exec.Command("ip", "route", "add", "default", "via", gateway, "dev", "eth0").Run()
+
+	fmt.Println("  ✓ Static IP applied")
+
+	// Auto-reboot to persist changes (required for static IP to stick)
+	fmt.Println()
+	fmt.Println("  Rebooting to persist changes...")
+	fmt.Println("  Reconnect to the new IP after reboot.")
+	exec.Command("reboot").Run()
+	time.Sleep(3 * time.Second)
+}
+
+// showSetIPHelp displays help for set-ip command.
+func showSetIPHelp() {
+	fmt.Println("Set Static IP Address")
+	fmt.Println()
+	fmt.Println("  Automatically detects your current gateway and subnet mask,")
+	fmt.Println("  then configures a static IP address.")
+	fmt.Println()
+	fmt.Println("  Examples:")
+	fmt.Println("    luckyclaw set-ip 192.168.1.100")
+	fmt.Println("    luckyclaw set-ip 10.0.0.50")
+	fmt.Println()
+	fmt.Println("  Use --dhcp to restore DHCP:")
+	fmt.Println("    luckyclaw set-ip --dhcp")
+}
+
+// detectNetworkSettings returns gateway, netmask, and current IP.
+func detectNetworkSettings() (gateway, netmask, currentIP string, err error) {
+	// Get default gateway
+	gatewayOut, err := exec.Command("ip", "route", "show", "default").Output()
+	if err != nil {
+		return "", "", "", fmt.Errorf("failed to get gateway: %v", err)
+	}
+	gatewayParts := strings.Fields(string(gatewayOut))
+	for i, p := range gatewayParts {
+		if p == "via" && i+1 < len(gatewayParts) {
+			gateway = gatewayParts[i+1]
+		}
+	}
+	if gateway == "" {
+		return "", "", "", fmt.Errorf("could not parse gateway from: %s", string(gatewayOut))
+	}
+
+	// Get current IP and netmask
+	addrOut, err := exec.Command("ip", "addr", "show", "eth0").Output()
+	if err != nil {
+		return "", "", "", fmt.Errorf("failed to get IP: %v", err)
+	}
+
+	lines := strings.Split(string(addrOut), "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "inet ") {
+			fields := strings.Fields(line)
+			if len(fields) >= 2 {
+				ipWithCIDR := fields[1]
+				currentIP = strings.Split(ipWithCIDR, "/")[0]
+				if len(fields) >= 3 {
+					netmask = cidrToNetmask(strings.Split(ipWithCIDR, "/")[1])
+				}
+			}
+		}
+	}
+
+	if currentIP == "" || netmask == "" {
+		return "", "", "", fmt.Errorf("could not detect current IP/netmask")
+	}
+
+	return gateway, netmask, currentIP, nil
+}
+
+// validateIPSubnet checks if the new IP is in the same subnet as the gateway.
+func validateIPSubnet(newIP, gateway, netmask string) bool {
+	newIPParts := strings.Split(newIP, ".")
+	gatewayParts := strings.Split(gateway, ".")
+	netmaskParts := strings.Split(netmask, ".")
+
+	if len(newIPParts) != 4 || len(gatewayParts) != 4 || len(netmaskParts) != 4 {
+		return false
+	}
+
+	// Check if first 3 octets match (assuming /24 netmask)
+	// For non-/24, we need to do proper subnet comparison
+	netmaskInt := 0
+	for _, p := range netmaskParts {
+		n, _ := strconv.Atoi(p)
+		netmaskInt = (netmaskInt << 8) | n
+	}
+
+	gatewayInt := 0
+	for _, p := range gatewayParts {
+		n, _ := strconv.Atoi(p)
+		gatewayInt = (gatewayInt << 8) | n
+	}
+
+	newIPInt := 0
+	for _, p := range newIPParts {
+		n, _ := strconv.Atoi(p)
+		newIPInt = (newIPInt << 8) | n
+	}
+
+	// Compare using netmask
+	return (newIPInt & netmaskInt) == (gatewayInt & netmaskInt)
+}
+
+// calculateBroadcast computes the broadcast address from IP and netmask.
+func calculateBroadcast(ip, netmask string) string {
+	ipParts := strings.Split(ip, ".")
+	netmaskParts := strings.Split(netmask, ".")
+
+	ipInt := 0
+	for _, p := range ipParts {
+		n, _ := strconv.Atoi(p)
+		ipInt = (ipInt << 8) | n
+	}
+
+	netmaskInt := 0
+	for _, p := range netmaskParts {
+		n, _ := strconv.Atoi(p)
+		netmaskInt = (netmaskInt << 8) | n
+	}
+
+	// Broadcast is IP OR (NOT netmask)
+	notNetmask := ^netmaskInt
+	broadcastInt := ipInt | notNetmask
+
+	return fmt.Sprintf("%d.%d.%d.%d",
+		(broadcastInt>>24)&0xFF,
+		(broadcastInt>>16)&0xFF,
+		(broadcastInt>>8)&0xFF,
+		broadcastInt&0xFF)
+}
+
+// cidrToNetmask converts CIDR notation (e.g., "24") to dotted netmask (e.g., "255.255.255.0").
+func cidrToNetmask(cidr string) string {
+	cidrBits, _ := strconv.Atoi(cidr)
+	netmask := (uint32(0xFFFFFFFF) << (32 - cidrBits)) & 0xFFFFFFFF
+	return fmt.Sprintf("%d.%d.%d.%d",
+		(netmask>>24)&0xFF,
+		(netmask>>16)&0xFF,
+		(netmask>>8)&0xFF,
+		netmask&0xFF)
+}
+
+// countCIDRBits counts the number of bits in a dotted netmask.
+func countCIDRBits(netmask string) int {
+	netmaskParts := strings.Split(netmask, ".")
+	cidr := 0
+	for _, p := range netmaskParts {
+		n, _ := strconv.Atoi(p)
+		for n > 0 {
+			cidr += n & 1
+			n >>= 1
+		}
+	}
+	return cidr
+}
+
+// restoreDHCP sets the network interface to DHCP mode.
+func restoreDHCP() {
+	fmt.Println("  Restoring DHCP (automatic IP assignment)...")
+	fmt.Println()
+
+	// Write DHCP config
+	dhcpContent := `auto eth0
+iface eth0 inet dhcp
+`
+
+	err := os.WriteFile("/etc/network/interfaces", []byte(dhcpContent), 0644)
+	if err != nil {
+		fmt.Printf("Error writing /etc/network/interfaces: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Println("  ✓ Network config written (DHCP mode)")
+
+	// Bring interface down and up
+	exec.Command("ip", "addr", "flush", "dev", "eth0").Run()
+
+	fmt.Println()
+	fmt.Println("  Rebooting to apply DHCP settings...")
+	fmt.Println("  The board will receive an IP address from your router.")
+	exec.Command("reboot").Run()
+	time.Sleep(2 * time.Second)
 }
 
 func copyFile(src, dst string, mode os.FileMode) error {

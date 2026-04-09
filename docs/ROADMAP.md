@@ -23,15 +23,38 @@ Items are prioritized by readiness and impact. Items may be moved between versio
 - Pico Pro / Pico Max board compatibility clarified
 - Improved memory reporting clarity in status and banner (available / total)
 
-## v0.2.2 (Current)
+## v0.2.2 ✅
 
 - `luckyclaw install` — sets up init script, SSH banner, and OOM protection on stock Buildroot (no reflash needed)
-- WhatsApp channel integration
+- Native WhatsApp channel (whatsmeow, QR pairing, quoted replies, media, deduplication)
+- Dynamic board detection — MemTotal-based (Plus/Pro/Max), replaces unreliable device tree matching
+- Dynamic GOMEMLIMIT per board variant (24/48/96MiB) with GOGC=20
+- Init script reads timezone from config.json (UTC fallback)
+- Safe gateway startup after onboarding — uses init script `start` to ensure env vars
+- Process-safe stop/restart — no `killall` that kills onboarding or user commands
+- SSH banner shows board name, memory, RSS, GOMEMLIMIT
+- NTP wait on boot — prevents TLS failures on cold boot
+- OOM protection — `oom_score_adj=-200` set after daemon start
+- Heartbeat self-chat alerts routed to WhatsApp
+- Session binary guard & dynamic context window (queried from OpenRouter during onboarding)
 - Port `registry_test.go` from upstream (tool registry test coverage)
 - Port `shell_process_unix.go` from upstream (process group cleanup for exec tool)
 - Port Empty Response Message Fix (`100720b`) from upstream for stability
+- `scripts/sync-overlay.sh` for SDK overlay synchronization
 
-## v0.2.x (Next Minor)
+## v0.2.3 ✅
+
+- `luckyclaw set-ip <IP>` — set static IP with auto-detected gateway/subnet, auto-reboot
+- `luckyclaw set-ip --dhcp` — restore DHCP (auto-reboot)
+- Init script `override_static_ip()` — kills vendor `udhcpc` and reapplies static config on boot
+
+## v0.2.4 (Next Minor)
+
+- PID validation & stale file cleanup (port from PicoClaw `pkg/pid`)
+- Cache system prompt between messages (file-modification-time check)
+- Pre-emptive context compression (compress before 400 error)
+
+## v0.2.x (Future Minor)
 
 - Auto-update command (`luckyclaw update`) — binary-only OTA updates
 - Tool definition caching

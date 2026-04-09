@@ -86,28 +86,35 @@ Follow our detailed documentation to flash the firmware:
 ssh root@<IP>
 # Default password: luckfox
 ```
-
-> [!TIP]
+ 
 > The device IP depends on your network. Connect the board via USB-C or Ethernet and check your router's DHCP leases, or use `arp -a | grep luckfox` to find it.
 
 ### Setting a Static IP
 
 By default, the board obtains an IP address via DHCP. To set a static IP:
 
+**Option A: Use `luckyclaw set-ip` (Recommended)**
+
 ```bash
-# Edit network interfaces
-nano /etc/network/interfaces
-
-# Replace dhcp with static configuration:
-auto eth0
-iface eth0 inet static
-    address 192.168.1.100
-    netmask 255.255.255.0
-    gateway 192.168.1.1
-
-# Apply changes
-/etc/init.d/S40network restart
+luckyclaw set-ip 192.168.1.100
 ```
+
+The command automatically detects your gateway and subnet, then reboots to apply the new IP.
+
+**Option B: Manual Configuration**
+
+```bash
+nano /etc/network/interfaces
+# Replace with your desired IP:
+# auto eth0
+# iface eth0 inet static
+#     address 192.168.1.100
+#     netmask 255.255.255.0
+#     gateway 192.168.1.1
+reboot
+```
+
+> To restore DHCP: `luckyclaw set-ip --dhcp`
 
 For persistent configuration across reboots, configure DHCP reservation on your router using the board's MAC address.
 
@@ -120,18 +127,22 @@ You'll see the LuckyClaw banner:
 | |__| |_| | (__|   <| |_| | |___| | (_| |\ V  V /
 |_____\__,_|\___|_|\_\\__, |\____|_|\__,_| \_/\_/
                       |___/
-  🦞 luckyclaw v0.2.2
+  🦞 luckyclaw v0.2.3
 
-  Gateway: running (PID 1234, 15MB)
-  Memory:  33MB / 55MB available
+  Board:     Pico Plus
+  Memory:    33MB available / 55MB total
+  Gateway:   running (PID 1234, 15MB RSS)
+  MemLimit:  24MiB
 
   Commands:
     luckyclaw status      — System status
     luckyclaw onboard     — Setup wizard
-    luckyclaw gateway     — Start AI gateway
+    luckyclaw gateway      — Start AI gateway
     luckyclaw gateway -b  — Start in background
     luckyclaw stop        — Stop gateway
     luckyclaw restart     — Restart gateway
+    luckyclaw set-ip     — Set static IP
+    luckyclaw help        — View more commands
 ```
 
 ### 3. Run the setup wizard
@@ -244,6 +255,8 @@ Plus other channels inherited from upstream (LINE, QQ, DingTalk, Feishu, MaixCam
 | `luckyclaw cron list`       | List scheduled reminders        |
 | `luckyclaw skills list`     | List installed skills           |
 | `luckyclaw install`         | Install as system service       |
+| `luckyclaw set-ip <IP>`     | Set static IP (auto-detects gateway/subnet) |
+| `luckyclaw set-ip --dhcp`   | Restore DHCP (automatic IP)     |
 | `luckyclaw version`         | Show version info               |
 
 ---
