@@ -46,6 +46,18 @@ get_timezone_from_config() {
     export TZ="UTC"
 }
 
+# Override DHCP with static IP if configured (Luckfox vendor scripts start udhcpc after ifup)
+override_static_ip() {
+    if grep -q "inet static" /etc/network/interfaces 2>/dev/null; then
+        # Kill any udhcpc that overwrote our static config
+        killall -9 udhcpc 2>/dev/null
+        # Reapply static config from interfaces file
+        ifdown eth0 2>/dev/null
+        ifup eth0 2>/dev/null
+        logger -t luckyclaw "Static IP override: applied from /etc/network/interfaces"
+    fi
+}
+
 # Ensure Telegram API resolves (fasthttp DNS timeout workaround)
 grep -q "api.telegram.org" /etc/hosts 2>/dev/null || \
   echo "149.154.166.110 api.telegram.org" >> /etc/hosts
@@ -59,6 +71,9 @@ killall -9 adbd 2>/dev/null
 # Apply memory and timezone settings
 detect_memory_profile
 get_timezone_from_config
+
+# Override DHCP with static IP if configured (runs after vendor udhcpc)
+override_static_ip
 
 case "$1" in
   start)
