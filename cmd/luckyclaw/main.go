@@ -2313,6 +2313,13 @@ func setIPCmd() {
 
 	newIP := os.Args[2]
 
+	// Validate new IP is a valid IPv4 address
+	if !validateIPv4(newIP) {
+		fmt.Printf("Error: '%s' is not a valid IPv4 address\n", newIP)
+		fmt.Println("Expected format: X.X.X.X (e.g., 192.168.1.100)")
+		os.Exit(1)
+	}
+
 	// Auto-detect current network settings
 	gateway, netmask, currentIP, err := detectNetworkSettings()
 	if err != nil {
@@ -2321,22 +2328,38 @@ func setIPCmd() {
 		os.Exit(1)
 	}
 
-	// Validate new IP is in same subnet
+	// Validate detected gateway is a valid IPv4 address
+	if !validateIPv4(gateway) {
+		fmt.Printf("Error: Detected gateway '%s' is not a valid IPv4 address\n", gateway)
+		fmt.Println("Check your network configuration.")
+		os.Exit(1)
+	}
+
+	// Validate new IP is in same subnet as gateway
 	if !validateIPSubnet(newIP, gateway, netmask) {
 		fmt.Printf("Error: IP %s is not in the same subnet as gateway %s\n", newIP, gateway)
 		fmt.Println("The IP must be in the same subnet (first 3 octets must match gateway).")
 		os.Exit(1)
 	}
 
+	// Validate new IP is not the gateway IP
+	if newIP == gateway {
+		fmt.Printf("Error: IP %s cannot be the same as the gateway\n", newIP)
+		fmt.Println("Choose a different IP address.")
+		os.Exit(1)
+	}
+
 	// Calculate broadcast address
 	broadcast := calculateBroadcast(newIP, netmask)
 
-	// Apply the static IP
-	fmt.Printf("  Current IP:  %s\n", currentIP)
-	fmt.Printf("  New IP:      %s/%d\n", newIP, countCIDRBits(netmask))
-	fmt.Printf("  Gateway:     %s\n", gateway)
-	fmt.Printf("  Netmask:     %s\n", netmask)
+	// Ask for confirmation before applying
+	fmt.Printf("  Current IP: %s\n", currentIP)
+	fmt.Printf("  New IP: %s\n", newIP)
 	fmt.Println()
+	if !promptYN(fmt.Sprintf("Set IP to %s?", newIP)) {
+		fmt.Println("  Cancelled.")
+		os.Exit(0)
+	}
 
 	// Write the new interfaces file
 	interfacesContent := fmt.Sprintf(`auto eth0
@@ -2431,6 +2454,22 @@ func detectNetworkSettings() (gateway, netmask, currentIP string, err error) {
 	return gateway, netmask, currentIP, nil
 }
 
+// validateIPv4 checks if an IP string is a valid IPv4 address.
+// Each octet must be 0-255.
+func validateIPv4(ip string) bool {
+	parts := strings.Split(ip, ".")
+	if len(parts) != 4 {
+		return false
+	}
+	for _, part := range parts {
+		n, err := strconv.Atoi(part)
+		if err != nil || n < 0 || n > 255 {
+			return false
+		}
+	}
+	return true
+}
+
 // validateIPSubnet checks if the new IP is in the same subnet as the gateway.
 func validateIPSubnet(newIP, gateway, netmask string) bool {
 	newIPParts := strings.Split(newIP, ".")
@@ -2522,6 +2561,12 @@ func countCIDRBits(netmask string) int {
 func restoreDHCP() {
 	fmt.Println("  Restoring DHCP (automatic IP assignment)...")
 	fmt.Println()
+
+	// Ask for confirmation before applying
+	if !promptYN("  Switch to DHCP and reboot?") {
+		fmt.Println("  Cancelled.")
+		os.Exit(0)
+	}
 
 	// Write DHCP config
 	dhcpContent := `auto eth0
