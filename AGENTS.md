@@ -276,3 +276,21 @@ This syncs:
 | `scripts/sync-overlay.sh` | Sync overlay to SDK for building |
 | `workspace/` | Embedded workspace templates |
 ## CULLED.md note: This file was removed in v0.2.4. Its historical context about PicoClaw migration is preserved in AGENTS.md lessons-learned section.
+
+## Release build safety (added in v0.2.4)
+- Never use raw `go build` for release firmware binaries. Always use `./scripts/build-arm-release.sh vX.Y.Z`.
+- `scripts/sync-overlay.sh` now refuses to copy a non-ARM binary and will print: "Build it with: ./scripts/build-arm-release.sh vX.Y.Z".
+- A host-built binary may appear to flash but will fail on-device with `ELF: not found` or `syntax error: unexpected "("`.
+- The canonical release flow is:
+  1. `./scripts/build-arm-release.sh v0.2.4`
+  2. `./scripts/sync-overlay.sh`
+  3. `cd luckfox-pico-sdk && ./build.sh`
+
+## Release build safety (added in v0.2.4)
+- Never use raw `go build` for release firmware binaries. Always use `./scripts/build-arm-release.sh vX.Y.Z`.
+- `scripts/sync-overlay.sh` now refuses to copy a non-ARM binary and will print: "Build it with: ./scripts/build-arm-release.sh vX.Y.Z".
+- A host-built binary may appear to flash but will fail on-device with `ELF: not found` or `syntax error: unexpected "("`.
+- The canonical release flow is:
+  1. `./scripts/build-arm-release.sh v0.2.4`
+  2. `./scripts/sync-overlay.sh`
+  3. `cd luckfox-pico-sdk && ./build.sh`
