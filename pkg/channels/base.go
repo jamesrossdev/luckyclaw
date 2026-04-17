@@ -90,6 +90,7 @@ func (c *BaseChannel) HandleMessage(senderID, chatID, content string, media []st
 	})
 
 	if !c.IsAllowed(senderID) {
+	logger.WarnCF("channels", "Message dropped by allowlist", map[string]any{"sender": senderID, "chat": chatID, "allowed": c.allowList})
 		return
 	}
 

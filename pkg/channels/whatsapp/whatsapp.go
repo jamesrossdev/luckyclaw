@@ -421,6 +421,7 @@ func (c *WhatsAppChannel) handleIncoming(evt *events.Message) {
 	}
 
 	stanzaID := evt.Info.ID
+	senderID := evt.Info.Sender.User
 	if c.isDuplicateStanza(stanzaID) {
 		logger.DebugCF("whatsapp", "Skipping duplicate stanza", map[string]any{
 			"stanza_id": stanzaID,
@@ -429,9 +430,24 @@ func (c *WhatsAppChannel) handleIncoming(evt *events.Message) {
 	}
 	c.startStanzaCleanup()
 
-	senderID := evt.Info.Sender.User
+	// Resolve compound identity: phone-only or LID-only. Derive the missing side
+	// so allow_from matches work reliably across both forms.
+	var altID types.JID
+	{ // limit err scope
+		var altErr error
+		altID, altErr = c.client.Store.GetAltJID(context.Background(), evt.Info.Sender)
+		if altErr != nil {
+			logger.DebugCF("whatsapp", "GetAltJID failed", map[string]any{"error": altErr, "sender": evt.Info.Sender.User})
+		}
+	}
+	if !altID.IsEmpty() {
+		senderID = evt.Info.Sender.User + "|" + altID.String()
+	}
+
 	chatID := evt.Info.Chat.String()
 
+	// Ensure sender identity is normalized so it can match allow_from entries
+	// that may contain either the phone-side or LID-side identity.
 	content := evt.Message.GetConversation()
 	if content == "" && evt.Message.ExtendedTextMessage != nil {
 		content = evt.Message.ExtendedTextMessage.GetText()
@@ -453,6 +469,7 @@ func (c *WhatsAppChannel) handleIncoming(evt *events.Message) {
 			"sender_user": senderID,
 			"chat_string": chatID,
 			"is_from_me":  evt.Info.IsFromMe,
+		"debug_senderID": senderID,
 			"stanza_id":   evt.Info.ID,
 			"sender_jid":  evt.Info.Sender.String(),
 		},
