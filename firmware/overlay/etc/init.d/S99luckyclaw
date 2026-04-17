@@ -77,6 +77,14 @@ override_static_ip
 
 case "$1" in
   start)
+    # Fresh flash detection: if /oem/.luckyclaw/config.json doesn't exist,
+    # the board hasn't been onboarded yet. Any /root/.luckyclaw/ data is stale
+    # from a previous deployment and should be wiped clean before the daemon sees it.
+    if [ ! -f "$CONFIGFILE" ] && [ -d /root/.luckyclaw ]; then
+      logger -t luckyclaw "Fresh flash detected — cleaning stale workspace at /root/.luckyclaw/"
+      rm -rf /root/.luckyclaw
+    fi
+
     # Check if config exists (user needs to run 'luckyclaw onboard' first)
     if [ ! -f "$CONFIGFILE" ]; then
       echo "LuckyClaw: No config found at $CONFIGFILE. Run 'luckyclaw onboard' first."
@@ -90,11 +98,11 @@ case "$1" in
     # certificates are "not yet valid". Discord's library does not retry
     # after a TLS failure, so launching too early kills it permanently.
     NTP_WAIT=0
-    while [ "$(date +%Y)" -lt 2025 ] && [ "$NTP_WAIT" -lt 30 ]; do
+    while [ "$(date +%Y)" -lt 2026 ] && [ "$NTP_WAIT" -lt 30 ]; do
       sleep 1
       NTP_WAIT=$((NTP_WAIT + 1))
     done
-    if [ "$(date +%Y)" -lt 2025 ]; then
+    if [ "$(date +%Y)" -lt 2026 ]; then
       echo "LuckyClaw: WARNING - System clock not synced after 30s, starting anyway"
     fi
 

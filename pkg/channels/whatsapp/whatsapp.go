@@ -79,6 +79,7 @@ type WhatsAppChannel struct {
 	*channels.BaseChannel
 	config            config.WhatsAppConfig
 	storePath         string
+	startupTime       time.Time // set when channel starts; used to suppress verification codes
 	client            *whatsmeow.Client
 	container         *sqlstore.Container
 	db                *sql.DB
@@ -117,6 +118,7 @@ func NewWhatsAppChannel(
 func (c *WhatsAppChannel) Start(ctx context.Context) error {
 	logger.InfoCF("whatsapp", "Starting WhatsApp native channel (whatsmeow)", map[string]any{"store": c.storePath})
 
+	c.startupTime = time.Now()
 	c.reconnectMu.Lock()
 	c.stopping.Store(false)
 	c.reconnecting = false
@@ -388,6 +390,31 @@ func (c *WhatsAppChannel) startStanzaCleanup() {
 	})
 }
 
+// isStartupVerificationCode drops short numeric messages (verification codes) that arrive
+// within the first startup window after the channel connects. WhatsApp redelivers pending
+// messages on reconnect, including the 4-6 digit verification code sent during onboard.
+// This covers all redeliveries during startup without needing a marker file.
+func (c *WhatsAppChannel) isStartupVerificationCode(content string) bool {
+	if c.startupTime.IsZero() {
+		return false
+	}
+	elapsed := time.Since(c.startupTime)
+	if elapsed > 2*time.Minute {
+		return false
+	}
+	trimmed := strings.TrimSpace(content)
+	// Match 4-6 digit codes (typical WhatsApp verification format)
+	if len(trimmed) < 4 || len(trimmed) > 6 {
+		return false
+	}
+	for _, ch := range trimmed {
+		if ch < '0' || ch > '9' {
+			return false
+		}
+	}
+	return true
+}
+
 func (c *WhatsAppChannel) handleIncoming(evt *events.Message) {
 	if evt.Message == nil {
 		return
@@ -404,6 +431,20 @@ func (c *WhatsAppChannel) handleIncoming(evt *events.Message) {
 
 	senderID := evt.Info.Sender.User
 	chatID := evt.Info.Chat.String()
+
+	content := evt.Message.GetConversation()
+	if content == "" && evt.Message.ExtendedTextMessage != nil {
+		content = evt.Message.ExtendedTextMessage.GetText()
+	}
+
+	if c.isStartupVerificationCode(content) {
+		logger.InfoCF("whatsapp", "Dropped startup verification code message", map[string]any{
+			"content":   content,
+			"stanza_id": stanzaID,
+			"elapsed":   time.Since(c.startupTime).Round(time.Second).String(),
+		})
+		return
+	}
 
 	logger.InfoCF(
 		"whatsapp",
@@ -434,7 +475,7 @@ func (c *WhatsAppChannel) handleIncoming(evt *events.Message) {
 		return
 	}
 
-	// v0.2.2-rc6 Rate Limiter (Disabled by default)
+	// Rate Limiter (Disabled by default)
 	const maxMessagesPerMinute = 5
 	const rateLimitEnabled = false
 	if rateLimitEnabled {
@@ -454,11 +495,6 @@ func (c *WhatsAppChannel) handleIncoming(evt *events.Message) {
 			logger.WarnCF("whatsapp", "Rate limit exceeded, dropping message", map[string]any{"sender": senderID})
 			return
 		}
-	}
-
-	content := evt.Message.GetConversation()
-	if content == "" && evt.Message.ExtendedTextMessage != nil {
-		content = evt.Message.ExtendedTextMessage.GetText()
 	}
 
 	var mediaPaths []string
@@ -642,7 +678,7 @@ func (c *WhatsAppChannel) handleIncoming(evt *events.Message) {
 	// Cleanup for messages that reach the bus is handled in loop.go's centralized cleanup.
 	// Early-exit paths below (group filter, empty content) clean up explicitly.
 
-	// --- v0.2.2-rc4: Group Spam Filtering & Contextual Quotes ---
+	// Group Spam Filtering & Contextual Quotes
 	var isGroup = strings.HasSuffix(chatID, "@g.us")
 	var isMentioned = false
 	var isReplyToBot = false

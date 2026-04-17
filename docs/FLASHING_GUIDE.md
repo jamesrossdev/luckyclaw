@@ -92,7 +92,7 @@ If successful, SOCToolKit will display a **"Maskrom"** device in the USB dropdow
 ## Step 4: Select Firmware and Flash
 
 1. Click the **Firmware…** button at the bottom of the window.
-2. Browse to and select the `.img` file you downloaded (e.g. `luckyclaw-luckfox_pico_plus_rv1103-v0.2.0.img`).
+2. Browse to and select the `.img` file you downloaded (e.g. `luckyclaw-luckfox_pico_plus_rv1103-v0.2.4.img`).
 3. Click **Upgrade** to begin flashing.
 4. **Do not disconnect the cable** during this process. The log panel on the right will show progress.
 5. When complete, the log will show **"Upgrade firmware ok."** and **"Upgrade luckyclaw-v0…OK"**.

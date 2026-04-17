@@ -31,13 +31,13 @@ To enable the secure, restricted "Business Mode," you must manually add the `bus
 
 You have absolute control over how the bot responds to customers. Because LuckyClaw runs entirely locally via embedded workspace templates, you can sculpt its persona directly on the board.
 
-When you finish setting up LuckyClaw using `luckyclaw onboard`, the embedded workspace is cloned onto your device at `/oem/.luckyclaw/workspace/`. To customize your business agent, you only need to modify two core files:
+When you finish setting up LuckyClaw using `luckyclaw onboard`, the embedded workspace is cloned onto your device at `/root/.luckyclaw/workspace/`. To customize your business agent, you only need to modify two core files:
 
 ### 1. `IDENTITY.md` (Name Only)
 This file defines who the bot is. We recommend keeping this as lean as possible—**only change the name** to your business assistant's name. Do NOT add personality or behavioral instructions here; those belong in `SOUL.md`.
 
 ```bash
-nano /oem/.luckyclaw/workspace/IDENTITY.md
+nano /root/.luckyclaw/workspace/IDENTITY.md
 ```
 
 **Template:**
@@ -55,7 +55,7 @@ Official automated assistant for [Your Business Name].
 This file acts as the boundary lines for the agent's behavior. We highly recommend using the strict template below to ensure the bot remains locked into a professional context and refuses to act outside its boundaries. Replace your `~/.luckyclaw/workspace/SOUL.md` with this template.
 
 ```bash
-nano /oem/.luckyclaw/workspace/SOUL.md
+nano /root/.luckyclaw/workspace/SOUL.md
 ```
 
 **Template:**
@@ -138,8 +138,8 @@ Navigating the embedded filesystem on a headless board can be tedious. Use these
 
 | Action | Command |
 |--------|---------|
-| **Go to Workspace** | `cd /oem/.luckyclaw/workspace` |
-| **Go to Skills** | `cd /oem/.luckyclaw/workspace/skills` |
+| **Go to Workspace** | `cd /root/.luckyclaw/workspace` |
+| **Go to Skills** | `cd /root/.luckyclaw/workspace/skills` |
 | **Edit Config** | `nano /oem/.luckyclaw/config.json` |
 | **Watch Logs (Live)** | `tail -f /var/log/luckyclaw.log` |
 | **Check Time** | `date` |

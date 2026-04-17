@@ -34,15 +34,16 @@ type HeartbeatHandler func(prompt, channel, chatID string) *tools.ToolResult
 
 // HeartbeatService manages periodic heartbeat checks
 type HeartbeatService struct {
-	workspace   string
-	bus         *bus.MessageBus
-	state       *state.Manager
-	handler     HeartbeatHandler
-	interval    time.Duration
-	enabled     bool
-	mu          sync.RWMutex
-	stopChan    chan struct{}
-	selfChatJID string // WhatsApp self-chat JID for alert delivery
+	workspace        string
+	heartbeatLogPath string // if empty, derives from workspace
+	bus              *bus.MessageBus
+	state            *state.Manager
+	handler          HeartbeatHandler
+	interval         time.Duration
+	enabled          bool
+	mu               sync.RWMutex
+	stopChan         chan struct{}
+	selfChatJID      string // WhatsApp self-chat JID for alert delivery
 }
 
 // NewHeartbeatService creates a new heartbeat service
@@ -85,6 +86,15 @@ func (hs *HeartbeatService) SetHandler(handler HeartbeatHandler) {
 	hs.mu.Lock()
 	defer hs.mu.Unlock()
 	hs.handler = handler
+}
+
+// SetHeartbeatLogPath sets the explicit path for the heartbeat log file.
+// This overrides the default derivation from workspace path. Call this
+// to place the log alongside the config file (e.g. /oem/.luckyclaw/heartbeat.log).
+func (hs *HeartbeatService) SetHeartbeatLogPath(path string) {
+	hs.mu.Lock()
+	defer hs.mu.Unlock()
+	hs.heartbeatLogPath = path
 }
 
 // Start begins the heartbeat service
@@ -171,6 +181,9 @@ func (hs *HeartbeatService) executeHeartbeat() {
 	}
 
 	logger.InfoC("heartbeat", "[AUDIT] executeHeartbeat: START")
+
+	hs.ensureHeartbeatTemplate()
+	hs.migrateHeartbeatTemplateIfNeeded()
 
 	if handler == nil {
 		logger.InfoC("heartbeat", "[AUDIT] executeHeartbeat: handler nil, aborting")
@@ -344,6 +357,15 @@ If ANY issue, alert, anomaly, or task result needs reporting, do NOT include HEA
 `, now, diskStatus, content)
 }
 
+// ensureHeartbeatTemplate creates HEARTBEAT.md if it doesn't exist yet.
+func (hs *HeartbeatService) ensureHeartbeatTemplate() {
+	heartbeatPath := filepath.Join(hs.workspace, "HEARTBEAT.md")
+	if _, err := os.Stat(heartbeatPath); os.IsNotExist(err) {
+		hs.logInfo("HEARTBEAT.md not found, creating default template")
+		hs.createDefaultHeartbeatTemplate()
+	}
+}
+
 // createDefaultHeartbeatTemplate creates the default HEARTBEAT.md file
 func (hs *HeartbeatService) createDefaultHeartbeatTemplate() {
 	heartbeatPath := filepath.Join(hs.workspace, "HEARTBEAT.md")
@@ -449,13 +471,14 @@ func (hs *HeartbeatService) logError(format string, args ...any) {
 }
 
 // log writes a message to the heartbeat log file, with stderr fallback
-// Log file is placed outside the workspace to prevent LLM from reading old logs
+// Log file is placed alongside config to prevent LLM from reading old logs
 func (hs *HeartbeatService) log(level, format string, args ...any) {
-	// Place log file alongside config: /oem/.luckyclaw/heartbeat.log
-	// This prevents the LLM from reading old heartbeat logs which waste tokens
-	// Strategy: replace "/workspace" suffix with "" to get config directory
-	workspaceSuffix := string(filepath.Separator) + "workspace"
-	logFile := strings.Replace(hs.workspace, workspaceSuffix, "", 1) + string(filepath.Separator) + "heartbeat.log"
+	logFile := hs.heartbeatLogPath
+	if logFile == "" {
+		// Fallback derivation: replace "/workspace" suffix with "" to get config directory
+		workspaceSuffix := string(filepath.Separator) + "workspace"
+		logFile = strings.Replace(hs.workspace, workspaceSuffix, "", 1) + string(filepath.Separator) + "heartbeat.log"
+	}
 	message := fmt.Sprintf(format, args...)
 	timestamp := time.Now().Format("2006-01-02 15:04:05")
 	line := fmt.Sprintf("[%s] [%s] %s\n", timestamp, level, message)
@@ -540,6 +563,20 @@ If no tasks require execution, respond with HEARTBEAT_OK.
 `, time.Now().Format("2006-01-02 15:04:05"), getDiskUsage(), userPrompt)
 }
 
+var heartbeatTaskPlaceholderLines = []string{
+	"add your custom tasks below this line:",
+	"add your heartbeat tasks below this line:",
+}
+
+func isHeartbeatPlaceholder(line string) bool {
+	for _, placeholder := range heartbeatTaskPlaceholderLines {
+		if strings.Contains(strings.ToLower(line), placeholder) {
+			return true
+		}
+	}
+	return false
+}
+
 func (hs *HeartbeatService) hasCustomUserTasks() bool {
 	heartbeatPath := filepath.Join(hs.workspace, "HEARTBEAT.md")
 	data, err := os.ReadFile(heartbeatPath)
@@ -561,11 +598,43 @@ func (hs *HeartbeatService) hasCustomUserTasks() bool {
 	lines := strings.Split(afterSeparator, "\n")
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
-		if line == "" {
+		if line == "" || isHeartbeatPlaceholder(line) {
 			continue
 		}
 		return true
 	}
 
 	return false
+}
+
+func (hs *HeartbeatService) migrateHeartbeatTemplateIfNeeded() {
+	heartbeatPath := filepath.Join(hs.workspace, "HEARTBEAT.md")
+	data, err := os.ReadFile(heartbeatPath)
+	if err != nil {
+		return
+	}
+
+	content := string(data)
+	if content == "" {
+		return
+	}
+
+	oldSignatureLines := []string{
+		"## 1. Time & Date",
+		"ping -c 1 -W 2 8.8.8.8",
+		"## 2. Device Health",
+		"## 3. Network",
+	}
+
+	matches := 0
+	for _, sig := range oldSignatureLines {
+		if strings.Contains(content, sig) {
+			matches++
+		}
+	}
+
+	if matches >= 2 {
+		hs.logInfo("Migrating stale HEARTBEAT.md from old template format")
+		hs.createDefaultHeartbeatTemplate()
+	}
 }

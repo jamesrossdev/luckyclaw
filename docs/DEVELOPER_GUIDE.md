@@ -31,7 +31,7 @@ Keep the codebase clean using the integrated Makefile targets:
 
 ### Build firmware image
 
-The firmware overlay only contains OS-level files that get baked into `rootfs.img`. The **workspace templates** (`SOUL.md`, skills, etc.) are **embedded directly into the binary** via `go:embed workspace` — so every binary already carries the full workspace inside it. Users get workspace files by running `luckyclaw onboard`, which extracts them to `/oem/.luckyclaw/workspace/`.
+The firmware overlay only contains OS-level files that get baked into `rootfs.img`. The **workspace templates** (`SOUL.md`, skills, etc.) are **embedded directly into the binary** via `go:embed workspace` — so every binary already carries the full workspace inside it. Users get workspace files by running `luckyclaw onboard`, which extracts them to `/root/.luckyclaw/workspace/`.
 
 ```
 firmware/overlay/
@@ -93,14 +93,14 @@ luckfox-pico-sdk/IMAGE/IPC_SPI_NAND_BUILDROOT_RV110x.../IMAGES/update.img
 ```
 Rename this file to match our project release taxonomy: `luckyclaw-luckfox_pico_plus_rv110x-vX.Y.Z.img`.
 
-When a user flashes this image and runs `luckyclaw onboard`, the embedded workspace is extracted to `/oem/.luckyclaw/workspace/`.
+When a user flashes this image and runs `luckyclaw onboard`, the embedded workspace is extracted to `/root/.luckyclaw/workspace/`.
 
 ### Project structure
 
 ```
 luckyclaw/
 ├── cmd/luckyclaw/main.go    # Entry point, CLI, onboarding wizard (embeds workspace/)
-├── doc/                     # Project documentation exactly like this guide
+├── docs/                    # Project documentation exactly like this guide
 ├── pkg/
 │   ├── agent/               # Core agent loop and context builder
 │   ├── bus/                 # Internal message bus

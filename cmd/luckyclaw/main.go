@@ -56,7 +56,7 @@ import (
 var embeddedFiles embed.FS
 
 var (
-	version   = "v0.2.3"
+	version   = "v0.2.4"
 	gitCommit string
 	buildTime string
 	goVersion string
@@ -640,17 +640,17 @@ func onboard() {
 					pairPhone = strings.ReplaceAll(pairPhone, ")", "")
 				}
 
-				lid, err := whatsapp.PerformSetup(cfg.Channels.WhatsApp.SessionPath, expectedCode, pairPhone)
+				result, err := whatsapp.PerformSetup(cfg.Channels.WhatsApp.SessionPath, expectedCode, pairPhone)
 
 				if err != nil {
 					fmt.Printf("  ⚠ WhatsApp Setup failed: %v\n", err)
 					fmt.Println("  ✓ WhatsApp enabled (not linked - device may be offline)")
 					cfg.Channels.WhatsApp.Enabled = true
 					cfg.Channels.WhatsApp.AllowFrom = nil
-				} else if expectedCode != "" && lid != "" {
+				} else if expectedCode != "" && result != "" {
 					fmt.Printf("  ✓ Success! Number authorized (Local ID linked).\n")
 					cfg.Channels.WhatsApp.Enabled = true
-					cfg.Channels.WhatsApp.AllowFrom = config.FlexibleStringSlice{lid}
+					cfg.Channels.WhatsApp.AllowFrom = config.FlexibleStringSlice{result}
 				} else {
 					fmt.Println("  ✓ WhatsApp enabled")
 					cfg.Channels.WhatsApp.Enabled = true
@@ -871,6 +871,10 @@ func copyEmbeddedToTarget(targetDir string) error {
 			}
 		}
 	}
+
+	// Write version stamp so gateway can detect stale workspace after binary updates.
+	stampPath := filepath.Join(targetDir, ".version")
+	_ = os.WriteFile(stampPath, []byte(version), 0644)
 
 	return nil
 }
@@ -1148,6 +1152,8 @@ func gatewayCmd() {
 		fmt.Printf("Error loading config: %v\n", err)
 		os.Exit(1)
 	}
+	checkWorkspaceMigration(cfg)
+	checkWorkspaceVersion(cfg)
 	applySystemTimezone(cfg)
 
 	provider, err := providers.CreateProvider(cfg)
@@ -1185,6 +1191,7 @@ func gatewayCmd() {
 		cfg.Heartbeat.Interval,
 		cfg.Heartbeat.Enabled,
 	)
+	heartbeatService.SetHeartbeatLogPath(filepath.Dir(getConfigPath()) + string(filepath.Separator) + "heartbeat.log")
 	heartbeatService.SetBus(msgBus)
 	heartbeatService.SetHandler(func(prompt, channel, chatID string) *tools.ToolResult {
 		// Use cli:direct as fallback if no valid channel
@@ -1785,6 +1792,67 @@ func applyConfigDefaults(cfg *config.Config) {
 		}
 	}
 }
+
+func exists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
+
+func legacyWorkspacePath() string {
+	configPath := getConfigPath()
+	if strings.HasPrefix(configPath, "/oem/.luckyclaw/config.json") {
+		return "/oem/.luckyclaw/workspace"
+	}
+	return ""
+}
+
+func checkWorkspaceMigration(cfg *config.Config) {
+	legacy := legacyWorkspacePath()
+	if legacy == "" {
+		return
+	}
+	newPath := cfg.WorkspacePath()
+
+	legacyExists := exists(legacy)
+	newExists := exists(newPath)
+
+	if legacyExists && !newExists {
+		logger.InfoCF("migration", "Workspace path changed",
+			map[string]interface{}{
+				"old_path": legacy,
+				"new_path": newPath,
+				"action":   "User should manually migrate data from old path to new path",
+			})
+	} else if legacyExists && newExists {
+		logger.InfoCF("migration", "Multiple workspaces detected, using new path",
+			map[string]interface{}{
+				"legacy_path": legacy,
+				"active_path": newPath,
+			})
+	}
+}
+
+func checkWorkspaceVersion(cfg *config.Config) {
+	workspace := cfg.WorkspacePath()
+	stampPath := filepath.Join(workspace, ".version")
+	stampData, err := os.ReadFile(stampPath)
+	if err != nil {
+		// No stamp file — either fresh install or old binary never wrote one.
+		logger.InfoCF("version", "No workspace version stamp found, will be written on next onboard",
+			map[string]interface{}{"workspace": workspace})
+		return
+	}
+
+	stampVersion := strings.TrimSpace(string(stampData))
+	if stampVersion != version {
+		logger.InfoCF("version", "Workspace version mismatch — may contain stale data. Re-run 'luckyclaw onboard' to update.",
+			map[string]interface{}{
+				"workspace_version": stampVersion,
+				"binary_version":    version,
+			})
+	}
+}
+
 func cronCmd() {
 	if len(os.Args) < 3 {
 		cronHelp()

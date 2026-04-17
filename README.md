@@ -37,7 +37,7 @@ LuckyClaw is a streamlined, self-contained AI assistant purpose-built for the [L
 
 ### Option A: Flash Pre-Built Firmware (Recommended for Beginners)
 
-Download the firmware image for your board from [GitHub Releases](https://github.com/jamesrossdev/luckyclaw/releases) and follow the [LuckyClaw Flashing Guide](doc/FLASHING_GUIDE.md).
+Download the firmware image for your board from [GitHub Releases](https://github.com/jamesrossdev/luckyclaw/releases) and follow the [LuckyClaw Flashing Guide](docs/FLASHING_GUIDE.md).
 
 After flashing, connect via SSH and run:
 ```bash
@@ -78,7 +78,7 @@ Download the firmware image matching your board from [GitHub Releases](https://g
 
 Follow our detailed documentation to flash the firmware:
 
-👉 **[LuckyClaw Flashing Guide (eMMC)](doc/FLASHING_GUIDE.md)**
+👉 **[LuckyClaw Flashing Guide (eMMC)](docs/FLASHING_GUIDE.md)**
 
 ### 2. Connect via SSH
 
@@ -127,7 +127,7 @@ You'll see the LuckyClaw banner:
 | |__| |_| | (__|   <| |_| | |___| | (_| |\ V  V /
 |_____\__,_|\___|_|\_\\__, |\____|_|\__,_| \_/\_/
                       |___/
-  🦞 luckyclaw v0.2.3
+  🦞 luckyclaw v0.2.4
 
   Board:     Pico Plus
   Memory:    33MB available / 55MB total
@@ -289,15 +289,14 @@ Config: `/oem/.luckyclaw/config.json`
 
 ### Workspace Layout
 
-On-device path: `/oem/.luckyclaw/workspace/`
+On-device path: `/root/.luckyclaw/workspace/`
 
 ```
-/oem/.luckyclaw/workspace/
+/root/.luckyclaw/workspace/
 ├── sessions/          # Conversation history
 ├── memory/            # Long-term memory (MEMORY.md)
 ├── cron/              # Scheduled jobs
 ├── skills/            # Custom skills
-├── AGENT.md           # Agent behavior guide
 ├── HEARTBEAT.md       # Periodic tasks (every 30 min)
 ├── IDENTITY.md        # Agent identity
 └── USER.md            # User preferences
@@ -324,13 +323,13 @@ Ask the agent to set reminders naturally:
 - *"Remind me every 2 hours to drink water"*
 - *"Set an alarm for 9am daily"*
 
-Jobs are stored in `/oem/.luckyclaw/workspace/cron/` and persist across restarts.
+Jobs are stored in `/root/.luckyclaw/workspace/cron/` and persist across restarts.
 
 ---
 
 ## 🔒 Security
 
-LuckyClaw runs in a sandboxed workspace by default. The agent can only access files within `/oem/.luckyclaw/workspace/`.
+LuckyClaw runs in a sandboxed workspace by default. The agent can only access files within `/root/.luckyclaw/workspace/`.
 
 To allow system-wide access (use with caution):
 
@@ -404,9 +403,9 @@ LuckyClaw v0.2.0+ embeds its own timezone database and sets the timezone during 
 
 | Destination | Path / Command |
 |-------------|----------------|
-| **Config File** | `nano ~/.luckyclaw/config.json` |
-| **Workspace** | `~/.luckyclaw/workspace/` |
-| **Skills Dir** | `~/.luckyclaw/workspace/skills/` |
+| **Config File** | `nano /oem/.luckyclaw/config.json` |
+| **Workspace** | `/root/.luckyclaw/workspace/` |
+| **Skills Dir** | `/root/.luckyclaw/workspace/skills/` |
 | **Logs** | `tail -f /var/log/luckyclaw.log` |
 | **Gateway Status** | `luckyclaw status` |
 

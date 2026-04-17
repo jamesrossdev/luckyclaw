@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"github.com/caarlos0/env/v11"
@@ -390,19 +391,28 @@ func (c *Config) WorkspacePath() string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	ws := c.Agents.Defaults.Workspace
-	// If workspace starts with ~/ and we know the config directory,
-	// resolve relative to the config dir so workspace lives alongside config.
+	// If workspace starts with ~/ and config dir indicates embedded board
+	// (/oem/.luckyclaw/), resolve ~ to /root so workspace lives on rootfs.
 	// e.g. config at /oem/.luckyclaw/config.json with workspace ~/.luckyclaw/workspace
-	//      → /oem/.luckyclaw/workspace (not /root/.luckyclaw/workspace)
+	//      → /root/.luckyclaw/workspace (uses rootfs free space, not /oem)
 	//
-	// We strip only the leading "~" and preserve the rest of the path after it,
-	// then join with the parent of configDir (the /oem root) so the full structure
-	// is retained. Using filepath.Base would drop intermediate segments.
-	if c.configDir != "" && len(ws) > 2 && ws[0] == '~' && ws[1] == '/' {
-		// ws[1:] = "/.luckyclaw/workspace"
-		// filepath.Dir(configDir) = "/oem"
-		// result = "/oem" + "/.luckyclaw/workspace" = "/oem/.luckyclaw/workspace" ✓
-		return filepath.Join(filepath.Dir(c.configDir), ws[1:])
+	// Non-embedded: ~ resolves normally via expandHome.
+	if len(ws) > 2 && ws[0] == '~' && ws[1] == '/' {
+		if c.configDir != "" {
+			// Check if config is on /oem/.luckyclaw (embedded board)
+			if strings.HasPrefix(c.configDir, "/oem/.luckyclaw") {
+				// ws[1:] = "/.luckyclaw/workspace"
+				// result = "/root" + "/.luckyclaw/workspace" = "/root/.luckyclaw/workspace"
+				return filepath.Join("/root", ws[1:])
+			}
+			// Otherwise resolve relative to config dir parent (original behavior)
+			return filepath.Join(filepath.Dir(c.configDir), ws[1:])
+		}
+		// configDir is empty (e.g., fresh DefaultConfig during onboard before SaveConfig).
+		// Check if /oem exists to detect embedded board.
+		if _, err := os.Stat("/oem"); err == nil {
+			return filepath.Join("/root", ws[1:])
+		}
 	}
 	return expandHome(ws)
 }
