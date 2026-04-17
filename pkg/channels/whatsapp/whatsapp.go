@@ -421,12 +421,20 @@ func (c *WhatsAppChannel) handleIncoming(evt *events.Message) {
 	}
 
 	stanzaID := evt.Info.ID
-	senderID := evt.Info.Sender.User
+	senderUser := evt.Info.Sender.User
 	if c.isDuplicateStanza(stanzaID) {
 		logger.DebugCF("whatsapp", "Skipping duplicate stanza", map[string]any{
 			"stanza_id": stanzaID,
 		})
 		return
+	}
+
+	// Build senderID for allowlist/logging: always use bare user part (phone or LID without JID suffix).
+	// This ensures allowlist entries like "123456" match regardless of whether WhatsApp presents
+	// "123456" or "123456|alt@lid" or "123456@s.whatsapp.net".
+	senderID := senderUser
+	if idx := strings.Index(senderUser, "|"); idx > 0 {
+		senderID = senderUser[:idx]
 	}
 	c.startStanzaCleanup()
 
@@ -466,12 +474,12 @@ func (c *WhatsAppChannel) handleIncoming(evt *events.Message) {
 		"whatsapp",
 		"RAW WhatsApp message received",
 		map[string]any{
-			"sender_user": senderID,
-			"chat_string": chatID,
-			"is_from_me":  evt.Info.IsFromMe,
-		"debug_senderID": senderID,
-			"stanza_id":   evt.Info.ID,
-			"sender_jid":  evt.Info.Sender.String(),
+			"sender_user":    senderID,
+			"chat_string":    chatID,
+			"is_from_me":     evt.Info.IsFromMe,
+			"debug_senderID": senderID,
+			"stanza_id":      evt.Info.ID,
+			"sender_jid":     evt.Info.Sender.String(),
 		},
 	)
 

@@ -49,16 +49,33 @@ func (c *BaseChannel) IsAllowed(senderID string) bool {
 		return true
 	}
 
-	// Extract parts from compound senderID like "123456|username"
-	idPart := senderID
-	userPart := ""
-	if idx := strings.Index(senderID, "|"); idx > 0 {
-		idPart = senderID[:idx]
-		userPart = senderID[idx+1:]
+	// normalizeSenderID converts a possibly-compound WhatsApp sender ID to its
+	// bare form for consistent allowlist matching. WhatsApp can present the sender
+	// as:
+	//   - "phone|lid@s.whatsapp.net"  (compound from GetAltJID)
+	//   - "phone"                       (bare phone)
+	//   - "lid"                         (bare LID)
+	// The allowlist stores bare values like "254108092659" so we strip any
+	// "@domain" suffix and the "|username" compound separator.
+	normalized := senderID
+
+	// If there's a domain suffix, strip it first (e.g. @s.whatsapp.net or @lid).
+	if at := strings.LastIndex(normalized, "@"); at >= 0 {
+		tmp := normalized[:at]
+		// Also strip any compound "|username" leftover after domain removal.
+		if idx := strings.Index(tmp, "|"); idx > 0 {
+			tmp = tmp[:idx]
+		}
+		if tmp != "" {
+			normalized = tmp
+		}
+	} else if idx := strings.Index(normalized, "|"); idx > 0 {
+		// No domain but has compound prefix.
+		normalized = normalized[:idx]
 	}
 
 	for _, allowed := range c.allowList {
-		// Strip leading "@" from allowed value for username matching
+		// Strip leading "@" from allowed value for username matching.
 		trimmed := strings.TrimPrefix(allowed, "@")
 		allowedID := trimmed
 		allowedUser := ""
@@ -67,19 +84,37 @@ func (c *BaseChannel) IsAllowed(senderID string) bool {
 			allowedUser = trimmed[idx+1:]
 		}
 
-		// Support either side using "id|username" compound form.
-		// This keeps backward compatibility with legacy Telegram allowlist entries.
-		if senderID == allowed ||
-			idPart == allowed ||
-			senderID == trimmed ||
-			idPart == trimmed ||
-			idPart == allowedID ||
-			(allowedUser != "" && senderID == allowedUser) ||
-			(userPart != "" && (userPart == allowed || userPart == trimmed || userPart == allowedUser)) {
+		// Normalize allowed similarly (in case stored value carries a suffix).
+		allowedNormalized := allowed
+		if at := strings.LastIndex(allowedNormalized, "@"); at >= 0 {
+			allowedNormalized = allowedNormalized[:at]
+		}
+		if idx := strings.Index(allowedNormalized, "|"); idx > 0 {
+			allowedNormalized = allowedNormalized[:idx]
+		}
+
+		// Compare normalized forms.
+		if normalized == allowedNormalized ||
+			normalized == allowedID ||
+			normalized == trimmed ||
+			idPartMatch(normalized, allowedID) ||
+			normalized == allowedUser {
 			return true
 		}
 	}
+	return false
+}
 
+// idPartMatch checks whether the bare sender ID matches an allowed ID,
+// also allowing legacy compound entries like "123456|username".
+func idPartMatch(sender, allowedID string) bool {
+	if sender == allowedID {
+		return true
+	}
+	// If allowedID already contains "|username", compare only the ID part.
+	if idx := strings.Index(allowedID, "|"); idx > 0 {
+		return sender == allowedID[:idx]
+	}
 	return false
 }
 
@@ -90,7 +125,7 @@ func (c *BaseChannel) HandleMessage(senderID, chatID, content string, media []st
 	})
 
 	if !c.IsAllowed(senderID) {
-	logger.WarnCF("channels", "Message dropped by allowlist", map[string]any{"sender": senderID, "chat": chatID, "allowed": c.allowList})
+		logger.WarnCF("channels", "Message dropped by allowlist", map[string]any{"sender": senderID, "chat": chatID, "allowed": c.allowList})
 		return
 	}
 
