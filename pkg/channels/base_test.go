@@ -28,6 +28,18 @@ func TestBaseChannelIsAllowed(t *testing.T) {
 			want:      true,
 		},
 		{
+			name:      "compound sender matches right-side identity allowlist",
+			allowList: []string{"254112457495"},
+			senderID:  "71717598818505|254112457495@s.whatsapp.net",
+			want:      true,
+		},
+		{
+			name:      "compound sender matches left-side identity allowlist",
+			allowList: []string{"71717598818505"},
+			senderID:  "71717598818505|254112457495@s.whatsapp.net",
+			want:      true,
+		},
+		{
 			name:      "sender ID matches allowlist with domain suffix",
 			allowList: []string{"123456@s.whatsapp.net"},
 			senderID:  "123456",
@@ -42,6 +54,12 @@ func TestBaseChannelIsAllowed(t *testing.T) {
 		{
 			name:      "username-style allowlist → denied (no legacy support)",
 			allowList: []string{"@alice"},
+			senderID:  "123456|alice",
+			want:      false,
+		},
+		{
+			name:      "telegram-style compound sender does not match username allowlist",
+			allowList: []string{"alice"},
 			senderID:  "123456|alice",
 			want:      false,
 		},

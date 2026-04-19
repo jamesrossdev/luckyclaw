@@ -44,17 +44,44 @@ func (c *BaseChannel) IsRunning() bool {
 	return c.running
 }
 
-// canonicalSenderID normalizes a sender ID to its bare phone/LID.
-// It strips any domain suffix (e.g. @s.whatsapp.net) and any compound "|username" segment.
-func canonicalSenderID(s string) string {
+func canonicalID(s string) string {
 	s = strings.TrimSpace(s)
 	if at := strings.LastIndex(s, "@"); at >= 0 {
 		s = s[:at]
 	}
-	if idx := strings.Index(s, "|"); idx > 0 {
-		s = s[:idx]
-	}
 	return s
+}
+
+func senderCandidates(senderID string) map[string]struct{} {
+	candidates := make(map[string]struct{})
+	s := strings.TrimSpace(senderID)
+	if s == "" {
+		return candidates
+	}
+
+	if idx := strings.Index(s, "|"); idx > 0 {
+		if left := canonicalID(s[:idx]); left != "" {
+			candidates[left] = struct{}{}
+		}
+		rightRaw := strings.TrimSpace(s[idx+1:])
+		if isWhatsAppIdentity(rightRaw) {
+			if right := canonicalID(rightRaw); right != "" {
+				candidates[right] = struct{}{}
+			}
+		}
+		return candidates
+	}
+
+	if id := canonicalID(s); id != "" {
+		candidates[id] = struct{}{}
+	}
+	return candidates
+}
+
+func isWhatsAppIdentity(s string) bool {
+	return strings.HasSuffix(s, "@s.whatsapp.net") ||
+		strings.HasSuffix(s, "@lid") ||
+		strings.HasSuffix(s, "@c.us")
 }
 
 func canonicalAllowedID(s string) (string, bool) {
@@ -68,9 +95,7 @@ func canonicalAllowedID(s string) (string, bool) {
 	if strings.Contains(s, "|") {
 		return "", false
 	}
-	if at := strings.LastIndex(s, "@"); at >= 0 {
-		s = s[:at]
-	}
+	s = canonicalID(s)
 	if s == "" {
 		return "", false
 	}
@@ -82,10 +107,12 @@ func (c *BaseChannel) IsAllowed(senderID string) bool {
 		return true
 	}
 
-	idOnly := canonicalSenderID(senderID)
+	candidates := senderCandidates(senderID)
 	for _, allowed := range c.allowList {
-		if allowedCanonical, ok := canonicalAllowedID(allowed); ok && idOnly == allowedCanonical {
-			return true
+		if allowedCanonical, ok := canonicalAllowedID(allowed); ok {
+			if _, exists := candidates[allowedCanonical]; exists {
+				return true
+			}
 		}
 	}
 	return false
