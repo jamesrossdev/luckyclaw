@@ -401,6 +401,10 @@ func (c *WhatsAppChannel) isStartupVerificationCode(content, senderUser string) 
 	if err != nil || marker == nil {
 		return false
 	}
+	if strings.TrimSpace(marker.Code) == "" || strings.TrimSpace(marker.Sender) == "" {
+		removeStartupMarker(c.storePath)
+		return false
+	}
 	if time.Unix(marker.CreatedAt, 0).Add(startupMarkerTTL).Before(time.Now()) {
 		removeStartupMarker(c.storePath)
 		return false

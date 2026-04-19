@@ -69,7 +69,7 @@ func PerformSetup(sessionPath string, expectedCode string, pairPhone string) (st
 			if content == "" && v.Message.ExtendedTextMessage != nil {
 				content = v.Message.ExtendedTextMessage.GetText()
 			}
-			if strings.TrimSpace(content) == expectedCode {
+			if expectedCode != "" && strings.TrimSpace(content) == expectedCode {
 				mu.Lock()
 				foundLID = v.Info.Sender.User
 				mu.Unlock()
