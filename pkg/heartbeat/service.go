@@ -577,19 +577,12 @@ func isHeartbeatPlaceholder(line string) bool {
 	return false
 }
 
-func (hs *HeartbeatService) hasCustomUserTasks() bool {
-	heartbeatPath := filepath.Join(hs.workspace, "HEARTBEAT.md")
-	data, err := os.ReadFile(heartbeatPath)
-	if err != nil {
-		return false
-	}
-
-	content := string(data)
+func hasCustomUserTasksInContent(content string) bool {
 	if strings.TrimSpace(content) == "" {
 		return false
 	}
 
-	parts := strings.SplitN(content, "---\n\n", 2)
+	parts := strings.SplitN(content, "---", 2)
 	if len(parts) < 2 {
 		return true
 	}
@@ -605,6 +598,16 @@ func (hs *HeartbeatService) hasCustomUserTasks() bool {
 	}
 
 	return false
+}
+
+func (hs *HeartbeatService) hasCustomUserTasks() bool {
+	heartbeatPath := filepath.Join(hs.workspace, "HEARTBEAT.md")
+	data, err := os.ReadFile(heartbeatPath)
+	if err != nil {
+		return false
+	}
+
+	return hasCustomUserTasksInContent(string(data))
 }
 
 func (hs *HeartbeatService) migrateHeartbeatTemplateIfNeeded() {
@@ -634,6 +637,17 @@ func (hs *HeartbeatService) migrateHeartbeatTemplateIfNeeded() {
 	}
 
 	if matches >= 2 {
+		if hasCustomUserTasksInContent(content) {
+			hs.logInfo("Stale HEARTBEAT.md detected, preserving file because custom tasks exist")
+			return
+		}
+
+		backupPath := heartbeatPath + ".bak"
+		if err := os.WriteFile(backupPath, data, 0644); err != nil {
+			hs.logError("Failed to backup stale HEARTBEAT.md before migration: %v", err)
+			return
+		}
+
 		hs.logInfo("Migrating stale HEARTBEAT.md from old template format")
 		hs.createDefaultHeartbeatTemplate()
 	}

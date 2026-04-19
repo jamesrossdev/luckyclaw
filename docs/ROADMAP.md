@@ -54,6 +54,11 @@ Items are prioritized by readiness and impact. Items may be moved between versio
 - `luckyclaw set-ip <IP>` — set static IP with IPv4 validation (octets 0-255, gateway collision check, subnet validation) and confirmation prompt before applying
 - `luckyclaw set-ip --dhcp` — restore DHCP with confirmation prompt
 - Init script `override_static_ip()` — enhanced with validation-aware static IP application
+- **Allowlist normalization fix** — WhatsApp sender IDs now canonicalize correctly for allowlist matching, resolving message drops after restart
+- **Heartbeat template migration** — now non-destructive: preserves user-edited `HEARTBEAT.md` when custom tasks exist, creates backup before auto-migration
+- **`etc/` overlay sync restored** — `scripts/sync-overlay.sh` now syncs init script and SSH banner into SDK overlay again (was inadvertently dropped in v0.2.4 development)
+- **Onboarding idempotency** — re-running `luckyclaw onboard` now merges with existing config (preserving values) and skips workspace template overwrite for non-skill files
+- **Safe token clamp** — `max_tokens` is auto-clamped to `min(20% of context_window, 16384, provider_max_output)`, floor 1024, preventing context-window overflow errors on large-context models like DeepSeek v3.2
 
 ## v0.2.5 (Planned)
 

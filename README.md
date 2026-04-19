@@ -49,15 +49,18 @@ luckyclaw onboard
 If your board is already running Luckfox Buildroot, you can install LuckyClaw directly:
 
 ```bash
-# Download the ARMv7 binary
-wget https://github.com/jamesrossdev/luckyclaw/releases/latest/download/luckyclaw-linux-arm -O /usr/bin/luckyclaw
-chmod +x /usr/bin/luckyclaw
+# Download the ARMv7 binary on your computer, then upload it to the board:
+# (use your board's IP instead of <DEVICE_IP>)
+scp luckyclaw-linux-arm root@<DEVICE_IP>:/usr/bin/luckyclaw
+
+# Set permissions
+ssh root@<DEVICE_IP> "chmod +x /usr/bin/luckyclaw"
 
 # Run onboard setup
-luckyclaw onboard
+ssh root@<DEVICE_IP> "luckyclaw onboard"
 
 # Start in background
-luckyclaw gateway -b
+ssh root@<DEVICE_IP> "luckyclaw gateway -b"
 ```
 
 
@@ -245,6 +248,7 @@ Plus other channels inherited from upstream (LINE, QQ, DingTalk, Feishu, MaixCam
 | Command                     | Description                     |
 | --------------------------- | ------------------------------- |
 | `luckyclaw onboard`         | Interactive setup wizard        |
+| `luckyclaw config-reset`   | Delete config.json (keeps workspace, needs re-onboard) |
 | `luckyclaw status`          | System status (board, memory, gateway) |
 | `luckyclaw gateway`         | Start the AI gateway            |
 | `luckyclaw gateway -b`      | Start the AI gateway in background |
@@ -282,10 +286,15 @@ Config: `/oem/.luckyclaw/config.json`
 |--------------------|-------------------------------|
 | Provider           | `openrouter`                 |
 | Model              | `stepfun/step-3.5-flash:free` |
-| Max Tokens         | `16384`                       |
+| Max Tokens         | `auto-clamped to 20% of context_window, max 16384` |
+| Allow Unsafe Max Tokens | `false` (clamp enabled) |
 | Context Window     | Model-specific (queried via API) |
 | Temperature        | `0.6`                         |
 | Max Tool Iterations| `25`                          |
+
+> **Max Tokens Safety:** On startup (and during onboarding), `max_tokens` is automatically clamped to `min(20% of context_window, 16384, provider_max_output)` with a floor of 1024. This prevents context-window overflow errors on models like DeepSeek v3.2 while preserving usable output sizes. Existing configs are auto-healed on gateway start.
+>
+> To disable clamping and use a custom `max_tokens` value exactly as set, add `"allow_unsafe_max_tokens": true` to your `config.json` under `agents.defaults`. This opt-out is intended for advanced users who want maximum output size at the risk of overflow errors.
 
 ### Workspace Layout
 

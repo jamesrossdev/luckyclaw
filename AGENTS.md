@@ -44,7 +44,7 @@ firmware/overlay/etc/     ← Init script + SSH banner baked into firmware rootf
 - **Init script**: Auto-starts gateway on boot with OOM protection
 - **SSH banner**: Shows ASCII art, status, memory, all commands on login
 - **Default model**: `stepfun/step-3.5-flash:free` (free tier)
-- **Defaults**: `max_tokens=16384`, `max_tool_iterations=25`, `context_window=model-specific` (queried during onboarding)
+- **Defaults**: `max_tokens` is safety-clamped to `min(20% of context_window, 16384, provider_max_output)`, floor 1024; `allow_unsafe_max_tokens=false` (set to `true` in config to disable clamping); `max_tool_iterations=25`; `context_window=model-specific` (queried during onboarding)
 
 ### What We Did NOT Change
 All PicoClaw channels (Telegram, Discord, QQ, LINE, Slack, WhatsApp, etc.) and tools remain in the codebase. Users can configure any provider via `config.json` directly.
@@ -277,14 +277,6 @@ This syncs:
 | `workspace/` | Embedded workspace templates |
 ## CULLED.md note: This file was removed in v0.2.4. Its historical context about PicoClaw migration is preserved in AGENTS.md lessons-learned section.
 
-## Release build safety (added in v0.2.4)
-- Never use raw `go build` for release firmware binaries. Always use `./scripts/build-arm-release.sh vX.Y.Z`.
-- `scripts/sync-overlay.sh` now refuses to copy a non-ARM binary and will print: "Build it with: ./scripts/build-arm-release.sh vX.Y.Z".
-- A host-built binary may appear to flash but will fail on-device with `ELF: not found` or `syntax error: unexpected "("`.
-- The canonical release flow is:
-  1. `./scripts/build-arm-release.sh v0.2.4`
-  2. `./scripts/sync-overlay.sh`
-  3. `cd luckfox-pico-sdk && ./build.sh`
 
 ## Release build safety (added in v0.2.4)
 - Never use raw `go build` for release firmware binaries. Always use `./scripts/build-arm-release.sh vX.Y.Z`.

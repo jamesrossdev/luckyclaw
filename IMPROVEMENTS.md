@@ -40,14 +40,6 @@ Items listed here are planned enhancements that are not yet scheduled for implem
 
 **Blocked by**: Nothing. Can be implemented independently.
 
-## Session Management
-
-### Improved Token Estimator
-**Priority**: Low
-**Description**: Port `utf8.RuneCountInString` with 2.5 chars/token ratio from picoclaw upstream (vs our current `len` with 3 chars/token). More accurate for mixed-language content and CJK text.
-
-**Benefit**: Better context budget estimation, especially for non-English conversations.
-
 ## Context Management
 
 ### Pre-emptive Context Compression

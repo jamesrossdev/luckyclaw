@@ -31,7 +31,7 @@ To enable the secure, restricted "Business Mode," you must manually add the `bus
 
 You have absolute control over how the bot responds to customers. Because LuckyClaw runs entirely locally via embedded workspace templates, you can sculpt its persona directly on the board.
 
-When you finish setting up LuckyClaw using `luckyclaw onboard`, the embedded workspace is cloned onto your device at `/root/.luckyclaw/workspace/`. To customize your business agent, you only need to modify two core files:
+When you finish setting up LuckyClaw using `luckyclaw onboard`, the embedded workspace is extracted onto your device at `/root/.luckyclaw/workspace/`. To customize your business agent, you only need to modify two core files:
 
 ### 1. `IDENTITY.md` (Name Only)
 This file defines who the bot is. We recommend keeping this as lean as possible—**only change the name** to your business assistant's name. Do NOT add personality or behavioral instructions here; those belong in `SOUL.md`.

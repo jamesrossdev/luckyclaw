@@ -16,22 +16,34 @@ func TestBaseChannelIsAllowed(t *testing.T) {
 			want:      true,
 		},
 		{
-			name:      "compound sender matches numeric allowlist",
+			name:      "sender ID matches bare numeric allowlist",
 			allowList: []string{"123456"},
-			senderID:  "123456|alice",
-			want:      true,
-		},
-		{
-			name:      "compound sender matches username allowlist",
-			allowList: []string{"@alice"},
-			senderID:  "123456|alice",
-			want:      true,
-		},
-		{
-			name:      "numeric sender matches legacy compound allowlist",
-			allowList: []string{"123456|alice"},
 			senderID:  "123456",
 			want:      true,
+		},
+		{
+			name:      "compound sender matches bare numeric allowlist",
+			allowList: []string{"123456"},
+			senderID:  "123456|alice@s.whatsapp.net",
+			want:      true,
+		},
+		{
+			name:      "sender ID matches allowlist with domain suffix",
+			allowList: []string{"123456@s.whatsapp.net"},
+			senderID:  "123456",
+			want:      true,
+		},
+		{
+			name:      "numeric sender matches legacy compound allowlist → denied (no legacy support)",
+			allowList: []string{"123456|alice"},
+			senderID:  "123456",
+			want:      false,
+		},
+		{
+			name:      "username-style allowlist → denied (no legacy support)",
+			allowList: []string{"@alice"},
+			senderID:  "123456|alice",
+			want:      false,
 		},
 		{
 			name:      "non matching sender is denied",

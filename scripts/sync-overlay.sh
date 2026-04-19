@@ -13,6 +13,11 @@ BOARD_CONFIGS=(
 
 echo "=== Syncing LuckyClaw overlay ==="
 
+# Sync etc/ (tracked in git)
+echo "Syncing etc/..."
+mkdir -p "${SDK_OVERLAY}/etc"
+rsync -av --delete firmware/overlay/etc/ "${SDK_OVERLAY}/etc/"
+
 # Verify binary exists and is ARM
 if [ ! -f "${BIN}" ]; then
   echo "Warning: ${BIN} not found, skipping binary copy"

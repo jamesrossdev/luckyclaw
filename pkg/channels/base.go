@@ -44,76 +44,49 @@ func (c *BaseChannel) IsRunning() bool {
 	return c.running
 }
 
+// canonicalSenderID normalizes a sender ID to its bare phone/LID.
+// It strips any domain suffix (e.g. @s.whatsapp.net) and any compound "|username" segment.
+func canonicalSenderID(s string) string {
+	s = strings.TrimSpace(s)
+	if at := strings.LastIndex(s, "@"); at >= 0 {
+		s = s[:at]
+	}
+	if idx := strings.Index(s, "|"); idx > 0 {
+		s = s[:idx]
+	}
+	return s
+}
+
+func canonicalAllowedID(s string) (string, bool) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return "", false
+	}
+	if strings.HasPrefix(s, "@") {
+		return "", false
+	}
+	if strings.Contains(s, "|") {
+		return "", false
+	}
+	if at := strings.LastIndex(s, "@"); at >= 0 {
+		s = s[:at]
+	}
+	if s == "" {
+		return "", false
+	}
+	return s, true
+}
+
 func (c *BaseChannel) IsAllowed(senderID string) bool {
 	if len(c.allowList) == 0 {
 		return true
 	}
 
-	// normalizeSenderID converts a possibly-compound WhatsApp sender ID to its
-	// bare form for consistent allowlist matching. WhatsApp can present the sender
-	// as:
-	//   - "phone|lid@s.whatsapp.net"  (compound from GetAltJID)
-	//   - "phone"                       (bare phone)
-	//   - "lid"                         (bare LID)
-	// The allowlist stores bare values like "254108092659" so we strip any
-	// "@domain" suffix and the "|username" compound separator.
-	normalized := senderID
-
-	// If there's a domain suffix, strip it first (e.g. @s.whatsapp.net or @lid).
-	if at := strings.LastIndex(normalized, "@"); at >= 0 {
-		tmp := normalized[:at]
-		// Also strip any compound "|username" leftover after domain removal.
-		if idx := strings.Index(tmp, "|"); idx > 0 {
-			tmp = tmp[:idx]
-		}
-		if tmp != "" {
-			normalized = tmp
-		}
-	} else if idx := strings.Index(normalized, "|"); idx > 0 {
-		// No domain but has compound prefix.
-		normalized = normalized[:idx]
-	}
-
+	idOnly := canonicalSenderID(senderID)
 	for _, allowed := range c.allowList {
-		// Strip leading "@" from allowed value for username matching.
-		trimmed := strings.TrimPrefix(allowed, "@")
-		allowedID := trimmed
-		allowedUser := ""
-		if idx := strings.Index(trimmed, "|"); idx > 0 {
-			allowedID = trimmed[:idx]
-			allowedUser = trimmed[idx+1:]
-		}
-
-		// Normalize allowed similarly (in case stored value carries a suffix).
-		allowedNormalized := allowed
-		if at := strings.LastIndex(allowedNormalized, "@"); at >= 0 {
-			allowedNormalized = allowedNormalized[:at]
-		}
-		if idx := strings.Index(allowedNormalized, "|"); idx > 0 {
-			allowedNormalized = allowedNormalized[:idx]
-		}
-
-		// Compare normalized forms.
-		if normalized == allowedNormalized ||
-			normalized == allowedID ||
-			normalized == trimmed ||
-			idPartMatch(normalized, allowedID) ||
-			normalized == allowedUser {
+		if allowedCanonical, ok := canonicalAllowedID(allowed); ok && idOnly == allowedCanonical {
 			return true
 		}
-	}
-	return false
-}
-
-// idPartMatch checks whether the bare sender ID matches an allowed ID,
-// also allowing legacy compound entries like "123456|username".
-func idPartMatch(sender, allowedID string) bool {
-	if sender == allowedID {
-		return true
-	}
-	// If allowedID already contains "|username", compare only the ID part.
-	if idx := strings.Index(allowedID, "|"); idx > 0 {
-		return sender == allowedID[:idx]
 	}
 	return false
 }

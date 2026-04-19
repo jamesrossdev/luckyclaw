@@ -429,9 +429,9 @@ func (c *WhatsAppChannel) handleIncoming(evt *events.Message) {
 		return
 	}
 
-	// Build senderID for allowlist/logging: always use bare user part (phone or LID without JID suffix).
-	// This ensures allowlist entries like "123456" match regardless of whether WhatsApp presents
-	// "123456" or "123456|alt@lid" or "123456@s.whatsapp.net".
+	// Build senderID for allowlist/logging from the sender user part first.
+	// If an alternate identity is available, we attach it as a compound form
+	// "phone|alt@domain"; BaseChannel.IsAllowed canonicalizes this for ID-only matching.
 	senderID := senderUser
 	if idx := strings.Index(senderUser, "|"); idx > 0 {
 		senderID = senderUser[:idx]
@@ -439,7 +439,7 @@ func (c *WhatsAppChannel) handleIncoming(evt *events.Message) {
 	c.startStanzaCleanup()
 
 	// Resolve compound identity: phone-only or LID-only. Derive the missing side
-	// so allow_from matches work reliably across both forms.
+	// for diagnostics while allow_from matching remains canonicalized in BaseChannel.
 	var altID types.JID
 	{ // limit err scope
 		var altErr error
@@ -454,8 +454,7 @@ func (c *WhatsAppChannel) handleIncoming(evt *events.Message) {
 
 	chatID := evt.Info.Chat.String()
 
-	// Ensure sender identity is normalized so it can match allow_from entries
-	// that may contain either the phone-side or LID-side identity.
+	// Sender identity normalization for allow_from matching happens in BaseChannel.
 	content := evt.Message.GetConversation()
 	if content == "" && evt.Message.ExtendedTextMessage != nil {
 		content = evt.Message.ExtendedTextMessage.GetText()

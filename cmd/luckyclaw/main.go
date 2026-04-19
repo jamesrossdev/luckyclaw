@@ -367,7 +367,23 @@ func fetchModelContext(apiKey, modelID string) (contextWindow, maxOutputTokens i
 	return defaultContext, defaultMaxTokens
 }
 
-// validateTelegramToken checks a Telegram bot token via the getMe API.
+// safeMaxTokens returns a safe output token budget given a context window and
+// the provider's own max output limit.
+// Rule: 20% of context_window, capped at 16384, floor at 1024.
+func safeMaxTokens(contextWindow, providerMaxOutput int) int {
+	fraction := contextWindow * 20 / 100
+	if fraction < 1024 {
+		fraction = 1024
+	}
+	cap := 16384
+	if providerMaxOutput > 0 && providerMaxOutput < cap {
+		cap = providerMaxOutput
+	}
+	if fraction > cap {
+		fraction = cap
+	}
+	return fraction
+}
 func validateTelegramToken(token string) (string, error) {
 	resp, err := http.Get("https://api.telegram.org/bot" + token + "/getMe")
 	if err != nil {
@@ -455,6 +471,17 @@ func onboard() {
 
 	// Build config in memory — only save at the very end (atomic)
 	cfg := config.DefaultConfig()
+	if _, err := os.Stat(configPath); err == nil {
+		existingCfg, loadErr := config.LoadConfig(configPath)
+		if loadErr != nil {
+			fmt.Printf("  Error loading existing config: %v\n", loadErr)
+			fmt.Println("  Fix or reset your config, then run onboard again.")
+			os.Exit(1)
+		}
+		cfg = existingCfg
+		fmt.Println("  Existing config detected. Blank inputs keep current values.")
+		fmt.Println()
+	}
 
 	// Step 1: OpenRouter API Key
 	fmt.Println("  Step 1: OpenRouter API Key")
@@ -493,13 +520,14 @@ func onboard() {
 
 	// Query model context window from OpenRouter API if key is available
 	if apiKey != "" {
-		ctxWindow, maxTokens := fetchModelContext(apiKey, cfg.Agents.Defaults.Model)
+		ctxWindow, providerMax := fetchModelContext(apiKey, cfg.Agents.Defaults.Model)
 		cfg.Agents.Defaults.ContextWindow = ctxWindow
-		cfg.Agents.Defaults.MaxTokens = maxTokens
-		fmt.Printf("  Model context: %d tokens, max output: %d tokens\n", ctxWindow, maxTokens)
+		cfg.Agents.Defaults.MaxTokens = safeMaxTokens(ctxWindow, providerMax)
+		fmt.Printf("  Model context: %d tokens, safe max output: %d tokens\n",
+			ctxWindow, cfg.Agents.Defaults.MaxTokens)
 	}
 
-	cfg.Agents.Defaults.MaxToolIterations = 10
+	cfg.Agents.Defaults.MaxToolIterations = 25
 
 	// Step 3: Timezone
 	fmt.Println()
@@ -835,7 +863,13 @@ func copyEmbeddedToTarget(targetDir string) error {
 			return fmt.Errorf("Failed to create directory %s: %w", filepath.Dir(targetPath), err)
 		}
 
-		// Write file
+		isSkillFile := strings.HasPrefix(new_path, "skills"+string(filepath.Separator))
+		if !isSkillFile {
+			if _, err := os.Stat(targetPath); err == nil {
+				return nil
+			}
+		}
+
 		if err := os.WriteFile(targetPath, data, 0644); err != nil {
 			return fmt.Errorf("Failed to write file %s: %w", targetPath, err)
 		}
@@ -1776,14 +1810,27 @@ func loadConfig() (*config.Config, error) {
 func applyConfigDefaults(cfg *config.Config) {
 	changed := false
 	defaults := config.DefaultConfig()
-	if cfg.Agents.Defaults.MaxTokens < defaults.Agents.Defaults.MaxTokens {
+
+	if cfg.Agents.Defaults.MaxTokens <= 0 {
 		cfg.Agents.Defaults.MaxTokens = defaults.Agents.Defaults.MaxTokens
 		changed = true
 	}
+
 	if cfg.Agents.Defaults.MaxToolIterations < defaults.Agents.Defaults.MaxToolIterations {
 		cfg.Agents.Defaults.MaxToolIterations = defaults.Agents.Defaults.MaxToolIterations
 		changed = true
 	}
+
+	ctxWindow := cfg.Agents.Defaults.ContextWindow
+	if ctxWindow <= 0 {
+		ctxWindow = 256000
+	}
+	safeTokens := safeMaxTokens(ctxWindow, 0)
+	if !cfg.Agents.Defaults.AllowUnsafeMaxTokens && cfg.Agents.Defaults.MaxTokens > safeTokens {
+		cfg.Agents.Defaults.MaxTokens = safeTokens
+		changed = true
+	}
+
 	if changed {
 		logger.Info("Auto-upgrading stale memory configuration limits to firmware defaults")
 		err := config.SaveConfig(getConfigPath(), cfg)
