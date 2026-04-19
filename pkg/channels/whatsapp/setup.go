@@ -3,6 +3,7 @@ package whatsapp
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -77,6 +78,9 @@ func PerformSetup(sessionPath string, expectedCode string, pairPhone string) (st
 				default:
 					close(done)
 				}
+				if err := writeStartupMarker(sessionPath, expectedCode, v.Info.Sender.User); err != nil {
+					fmt.Printf("  Warning: failed to write startup marker: %v\n", err)
+				}
 			}
 		}
 	})
@@ -150,4 +154,41 @@ func PerformSetup(sessionPath string, expectedCode string, pairPhone string) (st
 	case <-time.After(3 * time.Minute):
 		return "", fmt.Errorf("timeout waiting for verification code")
 	}
+}
+
+const startupMarkerTTL = 30 * time.Minute
+
+type startupMarker struct {
+	Code      string `json:"code"`
+	Sender    string `json:"sender"`
+	CreatedAt int64  `json:"created_at"`
+}
+
+func writeStartupMarker(sessionPath, code, sender string) error {
+	marker := startupMarker{
+		Code:      code,
+		Sender:    sender,
+		CreatedAt: time.Now().Unix(),
+	}
+	data, err := json.Marshal(marker)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(sessionPath, ".startup_code_marker.json"), data, 0644)
+}
+
+func readStartupMarker(sessionPath string) (*startupMarker, error) {
+	data, err := os.ReadFile(filepath.Join(sessionPath, ".startup_code_marker.json"))
+	if err != nil {
+		return nil, err
+	}
+	var m startupMarker
+	if err := json.Unmarshal(data, &m); err != nil {
+		return nil, err
+	}
+	return &m, nil
+}
+
+func removeStartupMarker(sessionPath string) {
+	os.Remove(filepath.Join(sessionPath, ".startup_code_marker.json"))
 }

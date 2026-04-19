@@ -77,15 +77,9 @@ override_static_ip
 
 case "$1" in
   start)
-    # Fresh flash detection: if /oem/.luckyclaw/config.json doesn't exist,
-    # the board hasn't been onboarded yet. Any /root/.luckyclaw/ data is stale
-    # from a previous deployment and should be wiped clean before the daemon sees it.
-    if [ ! -f "$CONFIGFILE" ] && [ -d /root/.luckyclaw ]; then
-      logger -t luckyclaw "Fresh flash detected — cleaning stale workspace at /root/.luckyclaw/"
-      rm -rf /root/.luckyclaw
-    fi
-
-    # Check if config exists (user needs to run 'luckyclaw onboard' first)
+    # Config not present — exit early and prompt for onboarding.
+    # Workspace data is preserved regardless of config state (config-reset does not
+    # touch workspace, so missing config alone is not grounds for deletion).
     if [ ! -f "$CONFIGFILE" ]; then
       echo "LuckyClaw: No config found at $CONFIGFILE. Run 'luckyclaw onboard' first."
       exit 0

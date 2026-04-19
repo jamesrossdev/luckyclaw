@@ -390,28 +390,34 @@ func (c *WhatsAppChannel) startStanzaCleanup() {
 	})
 }
 
-// isStartupVerificationCode drops short numeric messages (verification codes) that arrive
-// within the first startup window after the channel connects. WhatsApp redelivers pending
-// messages on reconnect, including the 4-6 digit verification code sent during onboard.
-// This covers all redeliveries during startup without needing a marker file.
-func (c *WhatsAppChannel) isStartupVerificationCode(content string) bool {
-	if c.startupTime.IsZero() {
+// isStartupVerificationCode drops the exact onboarding verification message replay
+// within the startup window. It requires a marker file written at pairing time
+// containing the expected code, sender, and creation time. If any condition
+// fails (no marker, wrong sender, wrong code, expired TTL) the message is NOT
+// dropped — protecting users from legitimate 4–6 digit codes (OTP/PIN/order)
+// after restarts or brief reconnects.
+func (c *WhatsAppChannel) isStartupVerificationCode(content, senderUser string) bool {
+	marker, err := readStartupMarker(c.storePath)
+	if err != nil || marker == nil {
 		return false
 	}
-	elapsed := time.Since(c.startupTime)
-	if elapsed > 2*time.Minute {
+	if time.Unix(marker.CreatedAt, 0).Add(startupMarkerTTL).Before(time.Now()) {
+		removeStartupMarker(c.storePath)
 		return false
 	}
 	trimmed := strings.TrimSpace(content)
-	// Match 4-6 digit codes (typical WhatsApp verification format)
-	if len(trimmed) < 4 || len(trimmed) > 6 {
+	if trimmed != marker.Code {
 		return false
 	}
-	for _, ch := range trimmed {
-		if ch < '0' || ch > '9' {
-			return false
-		}
+	if senderUser != marker.Sender {
+		return false
 	}
+	removeStartupMarker(c.storePath)
+	logger.InfoCF("whatsapp", "Dropped onboarding verification code replay", map[string]any{
+		"code":    marker.Code,
+		"sender":  marker.Sender,
+		"elapsed": time.Since(time.Unix(marker.CreatedAt, 0)).Round(time.Second).String(),
+	})
 	return true
 }
 
@@ -460,12 +466,7 @@ func (c *WhatsAppChannel) handleIncoming(evt *events.Message) {
 		content = evt.Message.ExtendedTextMessage.GetText()
 	}
 
-	if c.isStartupVerificationCode(content) {
-		logger.InfoCF("whatsapp", "Dropped startup verification code message", map[string]any{
-			"content":   content,
-			"stanza_id": stanzaID,
-			"elapsed":   time.Since(c.startupTime).Round(time.Second).String(),
-		})
+	if c.isStartupVerificationCode(content, senderUser) {
 		return
 	}
 
