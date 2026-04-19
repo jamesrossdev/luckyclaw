@@ -504,6 +504,10 @@ func onboard() {
 			fmt.Println("✓")
 		}
 	}
+	effectiveAPIKey := strings.TrimSpace(apiKey)
+	if effectiveAPIKey == "" {
+		effectiveAPIKey = strings.TrimSpace(cfg.Providers.OpenRouter.APIKey)
+	}
 
 	// Step 2: Model
 	fmt.Println()
@@ -519,8 +523,8 @@ func onboard() {
 	cfg.Agents.Defaults.Provider = "openrouter"
 
 	// Query model context window from OpenRouter API if key is available
-	if apiKey != "" {
-		ctxWindow, providerMax := fetchModelContext(apiKey, cfg.Agents.Defaults.Model)
+	if effectiveAPIKey != "" {
+		ctxWindow, providerMax := fetchModelContext(effectiveAPIKey, cfg.Agents.Defaults.Model)
 		cfg.Agents.Defaults.ContextWindow = ctxWindow
 		cfg.Agents.Defaults.MaxTokens = safeMaxTokens(ctxWindow, providerMax)
 		fmt.Printf("  Model context: %d tokens, safe max output: %d tokens\n",

@@ -23,12 +23,14 @@ if [ ! -f "${BIN}" ]; then
   echo "Warning: ${BIN} not found, skipping binary copy"
 else
   FILE_OUTPUT=$(file "${BIN}")
-  if echo "${FILE_OUTPUT}" | grep -q 'ARM'; then
-    echo "Binary is ARM, syncing..."
+  if echo "${FILE_OUTPUT}" | grep -qi 'ELF 32-bit' && \
+     echo "${FILE_OUTPUT}" | grep -q 'ARM' && \
+     ! echo "${FILE_OUTPUT}" | grep -qi 'aarch64'; then
+    echo "Binary is 32-bit ARM, syncing..."
     cp "${BIN}" "${SDK_OVERLAY}/usr/bin/luckyclaw"
     chmod +x "${SDK_OVERLAY}/usr/bin/luckyclaw"
   else
-    echo "ERROR: ${BIN} is not an ARM binary:"
+    echo "ERROR: ${BIN} is not a 32-bit ARM binary:"
     echo "  ${FILE_OUTPUT}"
     echo "Build it with: ./scripts/build-arm-release.sh vX.Y.Z"
     exit 1
