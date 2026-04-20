@@ -4,7 +4,7 @@
 LuckyClaw 🦞
 
 ## Version
-0.2.x
+0.2.4
 
 ## Description
 Ultra-lightweight personal AI assistant built for Luckfox Pico boards.

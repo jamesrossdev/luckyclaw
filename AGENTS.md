@@ -44,7 +44,7 @@ firmware/overlay/etc/     ← Init script + SSH banner baked into firmware rootf
 - **Init script**: Auto-starts gateway on boot with OOM protection
 - **SSH banner**: Shows ASCII art, status, memory, all commands on login
 - **Default model**: `stepfun/step-3.5-flash:free` (free tier)
-- **Defaults**: `max_tokens=16384`, `max_tool_iterations=25`, `context_window=model-specific` (queried during onboarding)
+- **Defaults**: `max_tokens` is safety-clamped to `min(20% of context_window, 16384, provider_max_output)`, floor 1024; `allow_unsafe_max_tokens=false` (set to `true` in config to disable clamping); `max_tool_iterations=25`; `context_window=model-specific` (queried during onboarding)
 
 ### What We Did NOT Change
 All PicoClaw channels (Telegram, Discord, QQ, LINE, Slack, WhatsApp, etc.) and tools remain in the codebase. Users can configure any provider via `config.json` directly.
@@ -87,12 +87,12 @@ A shallow clone of the upstream PicoClaw repo is kept at `picoclaw-latest/` (git
 ### 12. Log File Destinations & Workspace Paths
 - **Gateway log**: `/var/log/luckyclaw.log` (stdout/stderr from the init script). The init script uses an `sh -c "exec ..."` wrapper because BusyBox's `start-stop-daemon -b` redirects fds to `/dev/null` before shell redirects take effect.
 - **Heartbeat log**: `/oem/.luckyclaw/heartbeat.log` (outside workspace — prevents LLM from reading old error logs and wasting tokens).
-- **Runtime workspace**: `/oem/.luckyclaw/workspace/` — this is where the bot reads/writes data at runtime. `luckyclaw onboard` creates it by extracting the `workspace/` directory that is **embedded directly into the binary** via `go:embed` at compile time. `firmware/overlay/root/` is NOT involved in this — nothing reads `/root/.luckyclaw/` at runtime.
+- **Runtime workspace**: `/root/.luckyclaw/workspace/` — this is where the bot reads/writes data at runtime. `luckyclaw onboard` creates it by extracting the `workspace/` directory that is **embedded directly into the binary** via `go:embed` at compile time. Config and heartbeat log stay on `/oem/.luckyclaw/`.
 
 ### 13. Firmware Overlay Structure
 Only two parts of `firmware/overlay/` are meaningful:
 - `firmware/overlay/etc/` — init script, SSH banner, timezone. **Must be tracked in git.** Gets baked into `rootfs.img`.
-- `firmware/overlay/root/` — **Dead weight. Do not use.** Nothing reads `/root/.luckyclaw/` at runtime; workspace data comes from the binary embed.
+- `firmware/overlay/root/` — **Not used.** The runtime workspace lives at `/root/.luckyclaw/workspace/` (populated by `luckyclaw onboard` from binary embed). Do not put static files here in the overlay — they will be overwritten or cleaned up.
 - `firmware/overlay/usr/` — **Not tracked in git.** The ARM binary is compiled at SDK build time and placed here; it is not stored in the repo.
 
 ### 14. Binary-Only Updates (No Reflash Required)
@@ -244,7 +244,7 @@ cd luckfox-pico-sdk && ./build.sh
 # Rename for distribution: luckyclaw-luckfox_pico_plus_rv1103-vX.Y.Z.img
 ```
 
-> **What's in the image:** `update.img` = kernel + rootfs (containing `/usr/bin/luckyclaw` with embedded workspace) + oem partition. When a user runs `luckyclaw onboard` after flashing, the embedded workspace is extracted to `/oem/.luckyclaw/workspace/`.
+> **What's in the image:** `update.img` = kernel + rootfs (containing `/usr/bin/luckyclaw` with embedded workspace) + oem partition. When a user runs `luckyclaw onboard` after flashing, the embedded workspace is extracted to `/root/.luckyclaw/workspace/`.
 
 ### SDK Overlay Sync
 
@@ -274,5 +274,15 @@ This syncs:
 | `firmware/overlay/etc/profile.d/luckyclaw-banner.sh` | SSH login banner |
 | `firmware/overlay/etc/init.d/S99luckyclaw` | Init script (auto-start) |
 | `scripts/sync-overlay.sh` | Sync overlay to SDK for building |
-| `CULLED.md` | What changed from PicoClaw and why |
 | `workspace/` | Embedded workspace templates |
+## CULLED.md note: This file was removed in v0.2.4. Its historical context about PicoClaw migration is preserved in AGENTS.md lessons-learned section.
+
+
+## Release build safety (added in v0.2.4)
+- Never use raw `go build` for release firmware binaries. Always use `./scripts/build-arm-release.sh vX.Y.Z`.
+- `scripts/sync-overlay.sh` now refuses to copy a non-ARM binary and will print: "Build it with: ./scripts/build-arm-release.sh vX.Y.Z".
+- A host-built binary may appear to flash but will fail on-device with `ELF: not found` or `syntax error: unexpected "("`.
+- The canonical release flow is:
+  1. `./scripts/build-arm-release.sh v0.2.4`
+  2. `./scripts/sync-overlay.sh`
+  3. `cd luckfox-pico-sdk && ./build.sh`

@@ -1,27 +1,23 @@
 # Suggested Improvements (Backlog)
 
-Items listed here are planned enhancements that are not yet scheduled for implementation.
+Items listed here are planned enhancements that are not yet scheduled for implementation. See `docs/ROADMAP.md` for the canonical version list.
 
 ## Cron Tool Enhancements
 
-### Add `at_time` Parameter
+### Smart One-Time Cron Fallback
 **Priority**: Medium
-**Description**: Add a new `at_time` parameter to the cron tool that accepts an ISO-8601 timestamp (e.g., `"2026-02-22T07:00:00+03:00"`). The tool would internally convert this to `atMS` using `time.Parse(time.RFC3339, at_time)`. This eliminates the need for the LLM to manually calculate `at_seconds` from `time.Now()` when the user specifies an absolute clock time for a one-time reminder.
+**Description**: Instead of adding a new `at_time` parameter, auto-detect when the LLM uses a fully-specified cron expression (all 5 fields have concrete values, no wildcards) and automatically set `DeleteAfterRun=true`. This makes the LLM's natural behavior (using `cron_expr="40 22 9 4 4"` for "tonight at 10:40") result in correct one-time semantics without requiring the LLM to use a specific parameter.
 
-**Benefit**: Reduces LLM arithmetic errors when converting "at 7:10 AM" → `at_seconds`. Currently the LLM must compute `target_time - current_time` in seconds, which is error-prone. With `at_time`, it just passes the ISO string directly.
+**Implementation**:
+1. In `addJob()`, parse the cron expression using gronx
+2. If all 5 fields are non-wildcard (no `*`), set `DeleteAfterRun=true`
+3. Log when the fallback is applied
 
-**Blocked by**: Nothing. Can be implemented independently after Phase 12-H.
+**Benefit**: Works with current LLM behavior. No parameter description changes needed. Fixes orphaned cron jobs from one-time clock reminders.
 
-
+**Blocked by**: Nothing. Can be implemented independently.
 
 ## Performance Optimizations
-
-### Cache System Prompt Between Messages
-**Priority**: Medium
-**Description**: `BuildSystemPrompt()` in `pkg/agent/context.go` re-reads `SOUL.md`, `USER.md`, `AGENTS.md`, skills summaries, and memory context from disk on every message. These files rarely change. Caching the result with a file-modification-time check would eliminate repeated disk I/O and string allocations.
-
-**Benefit**: Eliminates ~5 file reads and ~10KB of string allocations per message. On the Luckfox's SPI NAND flash (slower than eMMC), this could save 5-10ms per message.
-
 
 ### Pre-allocate HTTP Response Buffer
 **Priority**: Low
@@ -29,9 +25,7 @@ Items listed here are planned enhancements that are not yet scheduled for implem
 
 **Benefit**: Fewer intermediate allocations during LLM response parsing.
 
-## Benchmark Tests
-
-### Add Performance Benchmarks to `make check`
+### Benchmark Tests
 **Priority**: Medium
 **Description**: Introduce Go benchmark tests (`func BenchmarkXxx(b *testing.B)`) that measure the performance of critical hot-path functions. These should run as part of `make check` or as a separate `make bench` target. Proposed benchmarks:
 
@@ -46,15 +40,6 @@ Items listed here are planned enhancements that are not yet scheduled for implem
 
 **Blocked by**: Nothing. Can be implemented independently.
 
-## Session Management
-
-
-### Improved Token Estimator
-**Priority**: Low
-**Description**: Port `utf8.RuneCountInString` with 2.5 chars/token ratio from picoclaw upstream (vs our current `len` with 3 chars/token). More accurate for mixed-language content and CJK text.
-
-**Benefit**: Better context budget estimation, especially for non-English conversations.
-
 ## Context Management
 
 ### Pre-emptive Context Compression
@@ -67,6 +52,8 @@ Items listed here are planned enhancements that are not yet scheduled for implem
 3. Log the pre-emptive compression for debugging
 
 **Benefit**: Avoids wasted API calls and provides smoother user experience. Currently users see "Context window exceeded" message before compression kicks in.
+
+**Note**: Moved to v0.2.5 evaluation scope.
 
 **Blocked by**: Nothing. Can be implemented independently.
 
@@ -146,7 +133,7 @@ PicoClaw adds:
        Port    int    `json:"port"`
        Host    string `json:"host"`
    }
-   
+
    func WritePidFile(homePath, host string, port int) (*PidFileData, error)
    func ReadPidFile(homePath string) (*PidFileData, error)
    func RemovePidFileIfPID(homePath string, pid int) error
@@ -169,7 +156,7 @@ PicoClaw adds:
 ## Extensibility
 
 ### Model Context Protocol (MCP) Support
-**Priority**: Medium
+**Priority**: Medium (evaluate for v0.2.5)
 **Description**: Port MCP support from PicoClaw. MCP allows users to extend LuckyClaw with external tool servers via Anthropic's open standard protocol.
 
 **What it enables**:
@@ -214,9 +201,13 @@ PicoClaw adds:
 
 **RAM Impact**: Minimal base overhead (~100KB). Scales with connected servers. Not recommended for Pico Plus (64MB RAM). Suitable for Pro/Max.
 
+**Note**: Being evaluated for v0.2.5 scope.
+
 **Blocked by**: Nothing. Can be implemented independently.
 
-## New Skills
+## Future Skills (Pro/Max Only)
+
+These skills require significant RAM and are listed in `docs/ROADMAP.md` under Future. They are documented here for reference but are not planned for near-term implementation on Pico Plus hardware.
 
 ### agent-browser Skill
 **Priority**: Low (Pro/Max only)
@@ -237,12 +228,7 @@ PicoClaw adds:
 
 **RAM Impact**: ~100MB+ (Chromium + Node). **Pico Plus (64MB) is NOT sufficient.**
 
-**Files affected**:
-- `workspace/skills/agent-browser/SKILL.md` — add from PicoClaw
-
-**Note**: Document RAM requirements in skill. Only recommend for Pro/Max boards.
-
-**Blocked by**: Nothing. Not recommended for Pico Plus.
+**Note**: Only recommend for Pro/Max boards. Pico Plus cannot run this skill.
 
 ### GitHub PR Review Skill
 **Priority**: Low
@@ -274,6 +260,13 @@ PicoClaw adds:
 
 **RAM Impact**: Minimal (uses `gh` CLI, no additional processes)
 
-**Blocked by**: Nothing. Can be implemented independently.
-
 **Reference**: [ZeroClaw PR Review Skill](https://github.com/zeroclaw-labs/zeroclaw/blob/master/.claude/skills/github-pr-review/SKILL.md)
+
+## Cross-Platform Flashing Tool
+
+**Priority**: Low
+**Description**: Replace the Windows-only SOCToolKit with a cross-platform flashing tool that works on Windows, Linux, and macOS.
+
+**Current state**: Windows users rely on SOCToolKit from Rockchip to flash firmware images. A cross-platform Go-based tool could streamline the experience for non-Windows users.
+
+**Not yet fleshed out** — placeholder for future exploration if there's community interest.

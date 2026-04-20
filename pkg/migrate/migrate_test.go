@@ -368,7 +368,6 @@ func TestPlanWorkspaceMigration(t *testing.T) {
 		srcDir := t.TempDir()
 		dstDir := t.TempDir()
 
-		os.WriteFile(filepath.Join(srcDir, "AGENTS.md"), []byte("# Agents"), 0644)
 		os.WriteFile(filepath.Join(srcDir, "SOUL.md"), []byte("# Soul"), 0644)
 		os.WriteFile(filepath.Join(srcDir, "USER.md"), []byte("# User"), 0644)
 
@@ -387,8 +386,8 @@ func TestPlanWorkspaceMigration(t *testing.T) {
 				skipCount++
 			}
 		}
-		if copyCount != 3 {
-			t.Errorf("expected 3 copies, got %d", copyCount)
+		if copyCount != 2 {
+			t.Errorf("expected 2 copies, got %d", copyCount)
 		}
 		if skipCount != 2 {
 			t.Errorf("expected 2 skips (TOOLS.md, HEARTBEAT.md), got %d", skipCount)
@@ -399,8 +398,8 @@ func TestPlanWorkspaceMigration(t *testing.T) {
 		srcDir := t.TempDir()
 		dstDir := t.TempDir()
 
-		os.WriteFile(filepath.Join(srcDir, "AGENTS.md"), []byte("# Agents from OpenClaw"), 0644)
-		os.WriteFile(filepath.Join(dstDir, "AGENTS.md"), []byte("# Existing Agents"), 0644)
+		os.WriteFile(filepath.Join(srcDir, "SOUL.md"), []byte("# Soul from OpenClaw"), 0644)
+		os.WriteFile(filepath.Join(dstDir, "SOUL.md"), []byte("# Existing Soul"), 0644)
 
 		actions, err := PlanWorkspaceMigration(srcDir, dstDir, false)
 		if err != nil {
@@ -409,12 +408,12 @@ func TestPlanWorkspaceMigration(t *testing.T) {
 
 		backupCount := 0
 		for _, a := range actions {
-			if a.Type == ActionBackup && filepath.Base(a.Destination) == "AGENTS.md" {
+			if a.Type == ActionBackup && filepath.Base(a.Destination) == "SOUL.md" {
 				backupCount++
 			}
 		}
 		if backupCount != 1 {
-			t.Errorf("expected 1 backup action for AGENTS.md, got %d", backupCount)
+			t.Errorf("expected 1 backup action for SOUL.md, got %d", backupCount)
 		}
 	})
 
@@ -422,8 +421,8 @@ func TestPlanWorkspaceMigration(t *testing.T) {
 		srcDir := t.TempDir()
 		dstDir := t.TempDir()
 
-		os.WriteFile(filepath.Join(srcDir, "AGENTS.md"), []byte("# Agents"), 0644)
-		os.WriteFile(filepath.Join(dstDir, "AGENTS.md"), []byte("# Existing"), 0644)
+		os.WriteFile(filepath.Join(srcDir, "SOUL.md"), []byte("# Soul"), 0644)
+		os.WriteFile(filepath.Join(dstDir, "SOUL.md"), []byte("# Existing"), 0644)
 
 		actions, err := PlanWorkspaceMigration(srcDir, dstDir, true)
 		if err != nil {
@@ -574,7 +573,7 @@ func TestRunDryRun(t *testing.T) {
 	wsDir := filepath.Join(openclawHome, "workspace")
 	os.MkdirAll(wsDir, 0755)
 	os.WriteFile(filepath.Join(wsDir, "SOUL.md"), []byte("# Soul"), 0644)
-	os.WriteFile(filepath.Join(wsDir, "AGENTS.md"), []byte("# Agents"), 0644)
+	os.WriteFile(filepath.Join(wsDir, "USER.md"), []byte("# User"), 0644)
 
 	configData := map[string]interface{}{
 		"providers": map[string]interface{}{
@@ -615,7 +614,6 @@ func TestRunFullMigration(t *testing.T) {
 	wsDir := filepath.Join(openclawHome, "workspace")
 	os.MkdirAll(wsDir, 0755)
 	os.WriteFile(filepath.Join(wsDir, "SOUL.md"), []byte("# Soul from OpenClaw"), 0644)
-	os.WriteFile(filepath.Join(wsDir, "AGENTS.md"), []byte("# Agents from OpenClaw"), 0644)
 	os.WriteFile(filepath.Join(wsDir, "USER.md"), []byte("# User from OpenClaw"), 0644)
 
 	memDir := filepath.Join(wsDir, "memory")
@@ -662,14 +660,6 @@ func TestRunFullMigration(t *testing.T) {
 		t.Errorf("SOUL.md content = %q, want %q", string(soulData), "# Soul from OpenClaw")
 	}
 
-	agentsData, err := os.ReadFile(filepath.Join(picoWs, "AGENTS.md"))
-	if err != nil {
-		t.Fatalf("reading AGENTS.md: %v", err)
-	}
-	if string(agentsData) != "# Agents from OpenClaw" {
-		t.Errorf("AGENTS.md content = %q", string(agentsData))
-	}
-
 	memData, err := os.ReadFile(filepath.Join(picoWs, "memory", "MEMORY.md"))
 	if err != nil {
 		t.Fatalf("reading memory/MEMORY.md: %v", err)
@@ -695,7 +685,7 @@ func TestRunFullMigration(t *testing.T) {
 		t.Errorf("Telegram.Token = %q, want %q", picoConfig.Channels.Telegram.Token, "tg-migrate-test")
 	}
 
-	if result.FilesCopied < 3 {
+	if result.FilesCopied < 2 {
 		t.Errorf("expected at least 3 files copied, got %d", result.FilesCopied)
 	}
 	if !result.ConfigMigrated {

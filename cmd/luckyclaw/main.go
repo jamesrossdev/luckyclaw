@@ -56,7 +56,7 @@ import (
 var embeddedFiles embed.FS
 
 var (
-	version   = "v0.2.3"
+	version   = "v0.2.4"
 	gitCommit string
 	buildTime string
 	goVersion string
@@ -164,7 +164,8 @@ func main() {
 
 	switch command {
 	case "onboard":
-		onboard()
+		wipeWorkspace := len(os.Args) > 2 && os.Args[2] == "--wipe-workspace"
+		onboard(wipeWorkspace)
 	case "agent":
 		agentCmd()
 	case "gateway":
@@ -248,11 +249,11 @@ func main() {
 }
 
 func printHelp() {
-	fmt.Printf("%s luckyclaw - Personal AI Assistant v%s\n\n", logo, version)
-	fmt.Println("Usage: luckyclaw <command>")
+	fmt.Printf("%s luckyclaw - Personal AI Assistant %s\n\n", logo, version)
+	fmt.Println("Usage: luckyclaw <command> [options]")
 	fmt.Println()
 	fmt.Println("Commands:")
-	fmt.Println("  onboard       Initialize luckyclaw configuration and workspace")
+	fmt.Println("  onboard                    Initialize luckyclaw configuration and workspace")
 	fmt.Println("  agent         Interact with the agent directly")
 	fmt.Println("  gateway       Start luckyclaw gateway (-b for background)")
 	fmt.Println("  stop          Stop running gateway")
@@ -268,6 +269,9 @@ func printHelp() {
 	fmt.Println("  set-ip --dhcp Restore DHCP (automatic IP)")
 	fmt.Println("  version       Show version information")
 	fmt.Println("  help          Show this help message")
+	fmt.Println()
+	fmt.Println("Onboard flags:")
+	fmt.Println("  --wipe-workspace   Use with 'luckyclaw onboard' to wipe workspace first")
 }
 
 // promptLine reads a single line from stdin with a prompt.
@@ -282,6 +286,48 @@ func promptLine(prompt string) string {
 func promptYN(prompt string) bool {
 	resp := strings.ToLower(promptLine(prompt + " (y/n): "))
 	return resp == "y" || resp == "yes"
+}
+
+func validateWorkspaceWipePath(workspace string) error {
+	cleaned := filepath.Clean(strings.TrimSpace(workspace))
+	if cleaned == "" || cleaned == "." {
+		return fmt.Errorf("workspace path is empty")
+	}
+	if !filepath.IsAbs(cleaned) {
+		return fmt.Errorf("workspace path must be absolute")
+	}
+
+	dangerousRoots := map[string]struct{}{
+		"/":      {},
+		"/bin":   {},
+		"/boot":  {},
+		"/dev":   {},
+		"/etc":   {},
+		"/home":  {},
+		"/lib":   {},
+		"/lib64": {},
+		"/mnt":   {},
+		"/oem":   {},
+		"/opt":   {},
+		"/proc":  {},
+		"/root":  {},
+		"/run":   {},
+		"/sbin":  {},
+		"/srv":   {},
+		"/sys":   {},
+		"/tmp":   {},
+		"/usr":   {},
+		"/var":   {},
+	}
+	if _, blocked := dangerousRoots[cleaned]; blocked {
+		return fmt.Errorf("workspace path points to a protected system directory")
+	}
+
+	if filepath.Base(cleaned) != "workspace" || filepath.Base(filepath.Dir(cleaned)) != ".luckyclaw" {
+		return fmt.Errorf("workspace path must end with '/.luckyclaw/workspace'")
+	}
+
+	return nil
 }
 
 // validateOpenRouterKey tests an OpenRouter API key via the /auth/key endpoint.
@@ -367,7 +413,23 @@ func fetchModelContext(apiKey, modelID string) (contextWindow, maxOutputTokens i
 	return defaultContext, defaultMaxTokens
 }
 
-// validateTelegramToken checks a Telegram bot token via the getMe API.
+// safeMaxTokens returns a safe output token budget given a context window and
+// the provider's own max output limit.
+// Rule: 20% of context_window, capped at 16384, floor at 1024.
+func safeMaxTokens(contextWindow, providerMaxOutput int) int {
+	fraction := contextWindow * 20 / 100
+	if fraction < 1024 {
+		fraction = 1024
+	}
+	cap := 16384
+	if providerMaxOutput > 0 && providerMaxOutput < cap {
+		cap = providerMaxOutput
+	}
+	if fraction > cap {
+		fraction = cap
+	}
+	return fraction
+}
 func validateTelegramToken(token string) (string, error) {
 	resp, err := http.Get("https://api.telegram.org/bot" + token + "/getMe")
 	if err != nil {
@@ -419,23 +481,34 @@ func detectBoardModel() string {
 	return "Pico Plus"
 }
 
-func onboard() {
+func onboard(wipeWorkspace bool) {
 	stopCmd()
 	configPath := getConfigPath()
 
 	fmt.Println()
 	fmt.Println("  ╔══════════════════════════════════════╗")
 	fmt.Println("  ║  🦞 LuckyClaw Setup Wizard           ║")
-	fmt.Printf("  ║  v%-35s║\n", version)
+	fmt.Printf("  ║  %-36s║\n", version)
 	fmt.Println("  ╚══════════════════════════════════════╝")
-	fmt.Println()
+	// Build config in memory — only save at the very end (atomic)
+	cfg := config.DefaultConfig()
+	hasExistingConfig := false
+	if _, err := os.Stat(configPath); err == nil {
+		hasExistingConfig = true
+		existingCfg, loadErr := config.LoadConfig(configPath)
+		if loadErr != nil {
+			fmt.Printf("  Error loading existing config: %v\n", loadErr)
+			fmt.Println("  Fix or reset your config, then run onboard again.")
+			os.Exit(1)
+		}
+		cfg = existingCfg
+	}
 
-	// Show hardware info
+	// Show hardware info (needs config for workspace path)
 	model := detectBoardModel()
 	if model != "" {
 		fmt.Printf("  Board: %s\n", model)
 	}
-	// Read memory from /proc/meminfo
 	if memData, err := os.ReadFile("/proc/meminfo"); err == nil {
 		lines := strings.Split(string(memData), "\n")
 		var total, avail int
@@ -451,10 +524,77 @@ func onboard() {
 			fmt.Printf("  Memory: %dMB available / %dMB total\n", avail/1024, total/1024)
 		}
 	}
+
+	// Workspace detection — show before any setup steps so user can backup first
+	workspace := filepath.Clean(cfg.WorkspacePath())
+	workspaceExists := false
+	if info, err := os.Stat(workspace); err == nil && info.IsDir() {
+		workspaceExists = true
+	}
+	hasExistingSetup := hasExistingConfig || workspaceExists
+
+	fmt.Println()
+	fmt.Println("  Backup guide: docs/BACKUP_RESTORE.md")
 	fmt.Println()
 
-	// Build config in memory — only save at the very end (atomic)
-	cfg := config.DefaultConfig()
+	freshOnboard := wipeWorkspace
+	if hasExistingSetup {
+		fmt.Println("  Existing setup detected.")
+		fmt.Println("  1) Fresh onboard (recommended)")
+		fmt.Println("     Wipe workspace and start clean.")
+		fmt.Println("  2) Keep existing files (not recommended for first-time setup)")
+		fmt.Println("     Keep current workspace files and update config only.")
+		fmt.Println()
+
+		if wipeWorkspace {
+			fmt.Println("  --wipe-workspace detected: using Fresh onboard.")
+			fmt.Println()
+		} else {
+			for {
+				choice := strings.TrimSpace(promptLine("  Choose [1/2] (default 1): "))
+				if choice == "" || choice == "1" {
+					freshOnboard = true
+					break
+				}
+				if choice == "2" {
+					freshOnboard = false
+					break
+				}
+				fmt.Println("  Please enter 1 or 2.")
+			}
+			fmt.Println()
+		}
+	}
+
+	if freshOnboard {
+		if err := validateWorkspaceWipePath(workspace); err != nil {
+			fmt.Printf("  Refusing to wipe unsafe workspace path: %s\n", workspace)
+			fmt.Printf("  Reason: %v\n", err)
+			fmt.Printf("  Fix 'agents.defaults.workspace' in %s and retry.\n", configPath)
+			fmt.Println("  Onboarding canceled. No changes made.")
+			return
+		}
+
+		fmt.Printf("  Wiping workspace: %s ... ", workspace)
+		if err := os.RemoveAll(workspace); err != nil {
+			fmt.Printf("failed (%v)\n", err)
+			os.Exit(1)
+		}
+		if err := os.MkdirAll(workspace, 0755); err != nil {
+			fmt.Printf("failed (%v)\n", err)
+			os.Exit(1)
+		}
+		fmt.Println("✓")
+		fmt.Println()
+	} else if hasExistingSetup {
+		fmt.Println("  Keeping existing workspace files.")
+		fmt.Println()
+	}
+
+	if hasExistingConfig {
+		fmt.Println("  Existing config detected. Blank inputs keep current values.")
+		fmt.Println()
+	}
 
 	// Step 1: OpenRouter API Key
 	fmt.Println("  Step 1: OpenRouter API Key")
@@ -477,6 +617,10 @@ func onboard() {
 			fmt.Println("✓")
 		}
 	}
+	effectiveAPIKey := strings.TrimSpace(apiKey)
+	if effectiveAPIKey == "" {
+		effectiveAPIKey = strings.TrimSpace(cfg.Providers.OpenRouter.APIKey)
+	}
 
 	// Step 2: Model
 	fmt.Println()
@@ -492,14 +636,15 @@ func onboard() {
 	cfg.Agents.Defaults.Provider = "openrouter"
 
 	// Query model context window from OpenRouter API if key is available
-	if apiKey != "" {
-		ctxWindow, maxTokens := fetchModelContext(apiKey, cfg.Agents.Defaults.Model)
+	if effectiveAPIKey != "" {
+		ctxWindow, providerMax := fetchModelContext(effectiveAPIKey, cfg.Agents.Defaults.Model)
 		cfg.Agents.Defaults.ContextWindow = ctxWindow
-		cfg.Agents.Defaults.MaxTokens = maxTokens
-		fmt.Printf("  Model context: %d tokens, max output: %d tokens\n", ctxWindow, maxTokens)
+		cfg.Agents.Defaults.MaxTokens = safeMaxTokens(ctxWindow, providerMax)
+		fmt.Printf("  Model context: %d tokens, safe max output: %d tokens\n",
+			ctxWindow, cfg.Agents.Defaults.MaxTokens)
 	}
 
-	cfg.Agents.Defaults.MaxToolIterations = 10
+	cfg.Agents.Defaults.MaxToolIterations = 25
 
 	// Step 3: Timezone
 	fmt.Println()
@@ -640,17 +785,17 @@ func onboard() {
 					pairPhone = strings.ReplaceAll(pairPhone, ")", "")
 				}
 
-				lid, err := whatsapp.PerformSetup(cfg.Channels.WhatsApp.SessionPath, expectedCode, pairPhone)
+				result, err := whatsapp.PerformSetup(cfg.Channels.WhatsApp.SessionPath, expectedCode, pairPhone)
 
 				if err != nil {
 					fmt.Printf("  ⚠ WhatsApp Setup failed: %v\n", err)
 					fmt.Println("  ✓ WhatsApp enabled (not linked - device may be offline)")
 					cfg.Channels.WhatsApp.Enabled = true
 					cfg.Channels.WhatsApp.AllowFrom = nil
-				} else if expectedCode != "" && lid != "" {
+				} else if expectedCode != "" && result != "" {
 					fmt.Printf("  ✓ Success! Number authorized (Local ID linked).\n")
 					cfg.Channels.WhatsApp.Enabled = true
-					cfg.Channels.WhatsApp.AllowFrom = config.FlexibleStringSlice{lid}
+					cfg.Channels.WhatsApp.AllowFrom = config.FlexibleStringSlice{result}
 				} else {
 					fmt.Println("  ✓ WhatsApp enabled")
 					cfg.Channels.WhatsApp.Enabled = true
@@ -671,8 +816,7 @@ func onboard() {
 	}
 	fmt.Printf("  Config saved: %s ✓\n", configPath)
 
-	// Create workspace
-	workspace := cfg.WorkspacePath()
+	// Always run createWorkspaceTemplates — it skips existing non-skill files
 	createWorkspaceTemplates(workspace)
 
 	// Patch USER.md with selected timezone
@@ -835,7 +979,13 @@ func copyEmbeddedToTarget(targetDir string) error {
 			return fmt.Errorf("Failed to create directory %s: %w", filepath.Dir(targetPath), err)
 		}
 
-		// Write file
+		isSkillFile := strings.HasPrefix(new_path, "skills"+string(filepath.Separator))
+		if !isSkillFile {
+			if _, err := os.Stat(targetPath); err == nil {
+				return nil
+			}
+		}
+
 		if err := os.WriteFile(targetPath, data, 0644); err != nil {
 			return fmt.Errorf("Failed to write file %s: %w", targetPath, err)
 		}
@@ -871,6 +1021,10 @@ func copyEmbeddedToTarget(targetDir string) error {
 			}
 		}
 	}
+
+	// Write version stamp so gateway can detect stale workspace after binary updates.
+	stampPath := filepath.Join(targetDir, ".version")
+	_ = os.WriteFile(stampPath, []byte(version), 0644)
 
 	return nil
 }
@@ -1148,6 +1302,8 @@ func gatewayCmd() {
 		fmt.Printf("Error loading config: %v\n", err)
 		os.Exit(1)
 	}
+	checkWorkspaceMigration(cfg)
+	checkWorkspaceVersion(cfg)
 	applySystemTimezone(cfg)
 
 	provider, err := providers.CreateProvider(cfg)
@@ -1185,6 +1341,7 @@ func gatewayCmd() {
 		cfg.Heartbeat.Interval,
 		cfg.Heartbeat.Enabled,
 	)
+	heartbeatService.SetHeartbeatLogPath(filepath.Dir(getConfigPath()) + string(filepath.Separator) + "heartbeat.log")
 	heartbeatService.SetBus(msgBus)
 	heartbeatService.SetHandler(func(prompt, channel, chatID string) *tools.ToolResult {
 		// Use cli:direct as fallback if no valid channel
@@ -1769,14 +1926,27 @@ func loadConfig() (*config.Config, error) {
 func applyConfigDefaults(cfg *config.Config) {
 	changed := false
 	defaults := config.DefaultConfig()
-	if cfg.Agents.Defaults.MaxTokens < defaults.Agents.Defaults.MaxTokens {
+
+	if cfg.Agents.Defaults.MaxTokens <= 0 {
 		cfg.Agents.Defaults.MaxTokens = defaults.Agents.Defaults.MaxTokens
 		changed = true
 	}
+
 	if cfg.Agents.Defaults.MaxToolIterations < defaults.Agents.Defaults.MaxToolIterations {
 		cfg.Agents.Defaults.MaxToolIterations = defaults.Agents.Defaults.MaxToolIterations
 		changed = true
 	}
+
+	ctxWindow := cfg.Agents.Defaults.ContextWindow
+	if ctxWindow <= 0 {
+		ctxWindow = 256000
+	}
+	safeTokens := safeMaxTokens(ctxWindow, 0)
+	if !cfg.Agents.Defaults.AllowUnsafeMaxTokens && cfg.Agents.Defaults.MaxTokens > safeTokens {
+		cfg.Agents.Defaults.MaxTokens = safeTokens
+		changed = true
+	}
+
 	if changed {
 		logger.Info("Auto-upgrading stale memory configuration limits to firmware defaults")
 		err := config.SaveConfig(getConfigPath(), cfg)
@@ -1785,6 +1955,67 @@ func applyConfigDefaults(cfg *config.Config) {
 		}
 	}
 }
+
+func exists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
+
+func legacyWorkspacePath() string {
+	configPath := getConfigPath()
+	if strings.HasPrefix(configPath, "/oem/.luckyclaw/config.json") {
+		return "/oem/.luckyclaw/workspace"
+	}
+	return ""
+}
+
+func checkWorkspaceMigration(cfg *config.Config) {
+	legacy := legacyWorkspacePath()
+	if legacy == "" {
+		return
+	}
+	newPath := cfg.WorkspacePath()
+
+	legacyExists := exists(legacy)
+	newExists := exists(newPath)
+
+	if legacyExists && !newExists {
+		logger.InfoCF("migration", "Workspace path changed",
+			map[string]interface{}{
+				"old_path": legacy,
+				"new_path": newPath,
+				"action":   "User should manually migrate data from old path to new path",
+			})
+	} else if legacyExists && newExists {
+		logger.InfoCF("migration", "Multiple workspaces detected, using new path",
+			map[string]interface{}{
+				"legacy_path": legacy,
+				"active_path": newPath,
+			})
+	}
+}
+
+func checkWorkspaceVersion(cfg *config.Config) {
+	workspace := cfg.WorkspacePath()
+	stampPath := filepath.Join(workspace, ".version")
+	stampData, err := os.ReadFile(stampPath)
+	if err != nil {
+		// No stamp file — either fresh install or old binary never wrote one.
+		logger.InfoCF("version", "No workspace version stamp found, will be written on next onboard",
+			map[string]interface{}{"workspace": workspace})
+		return
+	}
+
+	stampVersion := strings.TrimSpace(string(stampData))
+	if stampVersion != version {
+		logger.InfoCF("version", "Workspace version mismatch — may contain stale data. Re-run 'luckyclaw onboard' to update.",
+			map[string]interface{}{
+				"workspace_version": stampVersion,
+				"binary_version":    version,
+			})
+	}
+}
+
 func cronCmd() {
 	if len(os.Args) < 3 {
 		cronHelp()
@@ -2313,6 +2544,13 @@ func setIPCmd() {
 
 	newIP := os.Args[2]
 
+	// Validate new IP is a valid IPv4 address
+	if !validateIPv4(newIP) {
+		fmt.Printf("Error: '%s' is not a valid IPv4 address\n", newIP)
+		fmt.Println("Expected format: X.X.X.X (e.g., 192.168.1.100)")
+		os.Exit(1)
+	}
+
 	// Auto-detect current network settings
 	gateway, netmask, currentIP, err := detectNetworkSettings()
 	if err != nil {
@@ -2321,22 +2559,38 @@ func setIPCmd() {
 		os.Exit(1)
 	}
 
-	// Validate new IP is in same subnet
+	// Validate detected gateway is a valid IPv4 address
+	if !validateIPv4(gateway) {
+		fmt.Printf("Error: Detected gateway '%s' is not a valid IPv4 address\n", gateway)
+		fmt.Println("Check your network configuration.")
+		os.Exit(1)
+	}
+
+	// Validate new IP is in same subnet as gateway
 	if !validateIPSubnet(newIP, gateway, netmask) {
 		fmt.Printf("Error: IP %s is not in the same subnet as gateway %s\n", newIP, gateway)
 		fmt.Println("The IP must be in the same subnet (first 3 octets must match gateway).")
 		os.Exit(1)
 	}
 
+	// Validate new IP is not the gateway IP
+	if newIP == gateway {
+		fmt.Printf("Error: IP %s cannot be the same as the gateway\n", newIP)
+		fmt.Println("Choose a different IP address.")
+		os.Exit(1)
+	}
+
 	// Calculate broadcast address
 	broadcast := calculateBroadcast(newIP, netmask)
 
-	// Apply the static IP
-	fmt.Printf("  Current IP:  %s\n", currentIP)
-	fmt.Printf("  New IP:      %s/%d\n", newIP, countCIDRBits(netmask))
-	fmt.Printf("  Gateway:     %s\n", gateway)
-	fmt.Printf("  Netmask:     %s\n", netmask)
+	// Ask for confirmation before applying
+	fmt.Printf("  Current IP: %s\n", currentIP)
+	fmt.Printf("  New IP: %s\n", newIP)
 	fmt.Println()
+	if !promptYN(fmt.Sprintf("Set IP to %s?", newIP)) {
+		fmt.Println("  Cancelled.")
+		os.Exit(0)
+	}
 
 	// Write the new interfaces file
 	interfacesContent := fmt.Sprintf(`auto eth0
@@ -2431,6 +2685,22 @@ func detectNetworkSettings() (gateway, netmask, currentIP string, err error) {
 	return gateway, netmask, currentIP, nil
 }
 
+// validateIPv4 checks if an IP string is a valid IPv4 address.
+// Each octet must be 0-255.
+func validateIPv4(ip string) bool {
+	parts := strings.Split(ip, ".")
+	if len(parts) != 4 {
+		return false
+	}
+	for _, part := range parts {
+		n, err := strconv.Atoi(part)
+		if err != nil || n < 0 || n > 255 {
+			return false
+		}
+	}
+	return true
+}
+
 // validateIPSubnet checks if the new IP is in the same subnet as the gateway.
 func validateIPSubnet(newIP, gateway, netmask string) bool {
 	newIPParts := strings.Split(newIP, ".")
@@ -2522,6 +2792,12 @@ func countCIDRBits(netmask string) int {
 func restoreDHCP() {
 	fmt.Println("  Restoring DHCP (automatic IP assignment)...")
 	fmt.Println()
+
+	// Ask for confirmation before applying
+	if !promptYN("  Switch to DHCP and reboot?") {
+		fmt.Println("  Cancelled.")
+		os.Exit(0)
+	}
 
 	// Write DHCP config
 	dhcpContent := `auto eth0

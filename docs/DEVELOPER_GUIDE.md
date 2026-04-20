@@ -31,7 +31,7 @@ Keep the codebase clean using the integrated Makefile targets:
 
 ### Build firmware image
 
-The firmware overlay only contains OS-level files that get baked into `rootfs.img`. The **workspace templates** (`SOUL.md`, skills, etc.) are **embedded directly into the binary** via `go:embed workspace` — so every binary already carries the full workspace inside it. Users get workspace files by running `luckyclaw onboard`, which extracts them to `/oem/.luckyclaw/workspace/`.
+The firmware overlay only contains OS-level files that get baked into `rootfs.img`. The **workspace templates** (`SOUL.md`, skills, etc.) are **embedded directly into the binary** via `go:embed workspace` — so every binary already carries the full workspace inside it. Users get workspace files by running `luckyclaw onboard`, which extracts them to `/root/.luckyclaw/workspace/`.
 
 ```
 firmware/overlay/
@@ -45,26 +45,28 @@ To build a distributable firmware image:
 
 1. **Build the ARM binary** (workspace is embedded automatically):
    ```bash
-   make build-arm
+   ./scripts/build-arm-release.sh vX.Y.Z
    # Output: build/luckyclaw-linux-arm
    ```
 
-2. **Clone the SDK** (one-time setup):
+2. **Sync the overlay to the SDK** (binary + OS-level configs):
+   ```bash
+   ./scripts/sync-overlay.sh
+   ```
+
+3. **Clone the SDK** (one-time setup):
    ```bash
    git clone https://github.com/LuckfoxTECH/luckfox-pico.git luckfox-pico-sdk
    ```
 
-3. **Sync the `etc/` overlay to the SDK** (do this if init script or banner changed):
-
-## SDK Overlay & Buildroot Optimization
-
 Because the ARM binary embeds its `workspace/` at compile time, changes to the daemon are zero-friction. However, to construct a completely stripped and optimized Luckfox firmware image from the 5GB SDK, we use tracked overlays and patches.
 
-### 1. `etc/` Overlay Linkage
-The SDK overlay `etc/` partition must stay in sync with our repo to inject the init script and SSH banner inside `rootfs`:
+### 1. `etc/` Overlay Sync
+The SDK overlay `etc/` partition must stay in sync with our repo to inject the init script and SSH banner inside `rootfs`. Use the sync script (do this whenever `etc/` files change):
 ```bash
-cp -r firmware/overlay/etc/* luckfox-pico-sdk/project/cfg/BoardConfig_IPC/overlay/luckyclaw-overlay/etc/
+./scripts/sync-overlay.sh
 ```
+This copies `etc/` from the repo into the SDK overlay, validates the ARM binary, and updates BoardConfigs. Do NOT manually `cp` — use the script for consistency.
 
 ### 2. Rootfs Bloatware Purging
 The stock SDK packs ~30MB of bloated diagnostic tools (Python, iperf, v4l2) and GUI libraries (FreeType, LibDRM) that we do not need, which dangerously compresses our available working flash space. Apply our storage optimization patch BEFORE building the firmware:
@@ -93,14 +95,14 @@ luckfox-pico-sdk/IMAGE/IPC_SPI_NAND_BUILDROOT_RV110x.../IMAGES/update.img
 ```
 Rename this file to match our project release taxonomy: `luckyclaw-luckfox_pico_plus_rv110x-vX.Y.Z.img`.
 
-When a user flashes this image and runs `luckyclaw onboard`, the embedded workspace is extracted to `/oem/.luckyclaw/workspace/`.
+When a user flashes this image and runs `luckyclaw onboard`, the embedded workspace is extracted to `/root/.luckyclaw/workspace/`.
 
 ### Project structure
 
 ```
 luckyclaw/
 ├── cmd/luckyclaw/main.go    # Entry point, CLI, onboarding wizard (embeds workspace/)
-├── doc/                     # Project documentation exactly like this guide
+├── docs/                    # Project documentation exactly like this guide
 ├── pkg/
 │   ├── agent/               # Core agent loop and context builder
 │   ├── bus/                 # Internal message bus

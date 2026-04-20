@@ -44,42 +44,77 @@ func (c *BaseChannel) IsRunning() bool {
 	return c.running
 }
 
+func canonicalID(s string) string {
+	s = strings.TrimSpace(s)
+	if at := strings.LastIndex(s, "@"); at >= 0 {
+		s = s[:at]
+	}
+	return s
+}
+
+func senderCandidates(senderID string) map[string]struct{} {
+	candidates := make(map[string]struct{})
+	s := strings.TrimSpace(senderID)
+	if s == "" {
+		return candidates
+	}
+
+	if idx := strings.Index(s, "|"); idx > 0 {
+		if left := canonicalID(s[:idx]); left != "" {
+			candidates[left] = struct{}{}
+		}
+		rightRaw := strings.TrimSpace(s[idx+1:])
+		if isWhatsAppIdentity(rightRaw) {
+			if right := canonicalID(rightRaw); right != "" {
+				candidates[right] = struct{}{}
+			}
+		}
+		return candidates
+	}
+
+	if id := canonicalID(s); id != "" {
+		candidates[id] = struct{}{}
+	}
+	return candidates
+}
+
+func isWhatsAppIdentity(s string) bool {
+	return strings.HasSuffix(s, "@s.whatsapp.net") ||
+		strings.HasSuffix(s, "@lid") ||
+		strings.HasSuffix(s, "@c.us")
+}
+
+func canonicalAllowedID(s string) (string, bool) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return "", false
+	}
+	if strings.HasPrefix(s, "@") {
+		return "", false
+	}
+	if strings.Contains(s, "|") {
+		return "", false
+	}
+	s = canonicalID(s)
+	if s == "" {
+		return "", false
+	}
+	return s, true
+}
+
 func (c *BaseChannel) IsAllowed(senderID string) bool {
 	if len(c.allowList) == 0 {
 		return true
 	}
 
-	// Extract parts from compound senderID like "123456|username"
-	idPart := senderID
-	userPart := ""
-	if idx := strings.Index(senderID, "|"); idx > 0 {
-		idPart = senderID[:idx]
-		userPart = senderID[idx+1:]
-	}
-
+	candidates := senderCandidates(senderID)
 	for _, allowed := range c.allowList {
-		// Strip leading "@" from allowed value for username matching
-		trimmed := strings.TrimPrefix(allowed, "@")
-		allowedID := trimmed
-		allowedUser := ""
-		if idx := strings.Index(trimmed, "|"); idx > 0 {
-			allowedID = trimmed[:idx]
-			allowedUser = trimmed[idx+1:]
-		}
-
-		// Support either side using "id|username" compound form.
-		// This keeps backward compatibility with legacy Telegram allowlist entries.
-		if senderID == allowed ||
-			idPart == allowed ||
-			senderID == trimmed ||
-			idPart == trimmed ||
-			idPart == allowedID ||
-			(allowedUser != "" && senderID == allowedUser) ||
-			(userPart != "" && (userPart == allowed || userPart == trimmed || userPart == allowedUser)) {
-			return true
+		if allowedCanonical, ok := canonicalAllowedID(allowed); ok {
+			if _, exists := candidates[allowedCanonical]; exists {
+				return true
+			}
 		}
 	}
-
 	return false
 }
 
@@ -90,6 +125,7 @@ func (c *BaseChannel) HandleMessage(senderID, chatID, content string, media []st
 	})
 
 	if !c.IsAllowed(senderID) {
+		logger.WarnCF("channels", "Message dropped by allowlist", map[string]any{"sender": senderID, "chat": chatID, "allowed": c.allowList})
 		return
 	}
 

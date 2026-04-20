@@ -37,7 +37,7 @@ LuckyClaw is a streamlined, self-contained AI assistant purpose-built for the [L
 
 ### Option A: Flash Pre-Built Firmware (Recommended for Beginners)
 
-Download the firmware image for your board from [GitHub Releases](https://github.com/jamesrossdev/luckyclaw/releases) and follow the [LuckyClaw Flashing Guide](doc/FLASHING_GUIDE.md).
+Download the firmware image for your board from [GitHub Releases](https://github.com/jamesrossdev/luckyclaw/releases) and follow the [LuckyClaw Flashing Guide](docs/FLASHING_GUIDE.md).
 
 After flashing, connect via SSH and run:
 ```bash
@@ -49,15 +49,18 @@ luckyclaw onboard
 If your board is already running Luckfox Buildroot, you can install LuckyClaw directly:
 
 ```bash
-# Download the ARMv7 binary
-wget https://github.com/jamesrossdev/luckyclaw/releases/latest/download/luckyclaw-linux-arm -O /usr/bin/luckyclaw
-chmod +x /usr/bin/luckyclaw
+# Download the ARMv7 binary on your computer, then upload it to the board:
+# (use your board's IP instead of <DEVICE_IP>)
+scp luckyclaw-linux-arm root@<DEVICE_IP>:/usr/bin/luckyclaw
+
+# Set permissions
+ssh root@<DEVICE_IP> "chmod +x /usr/bin/luckyclaw"
 
 # Run onboard setup
-luckyclaw onboard
+ssh root@<DEVICE_IP> "luckyclaw onboard"
 
 # Start in background
-luckyclaw gateway -b
+ssh root@<DEVICE_IP> "luckyclaw gateway -b"
 ```
 
 
@@ -78,7 +81,7 @@ Download the firmware image matching your board from [GitHub Releases](https://g
 
 Follow our detailed documentation to flash the firmware:
 
-👉 **[LuckyClaw Flashing Guide (eMMC)](doc/FLASHING_GUIDE.md)**
+👉 **[LuckyClaw Flashing Guide (eMMC)](docs/FLASHING_GUIDE.md)**
 
 ### 2. Connect via SSH
 
@@ -127,7 +130,7 @@ You'll see the LuckyClaw banner:
 | |__| |_| | (__|   <| |_| | |___| | (_| |\ V  V /
 |_____\__,_|\___|_|\_\\__, |\____|_|\__,_| \_/\_/
                       |___/
-  🦞 luckyclaw v0.2.3
+  🦞 luckyclaw v0.2.4
 
   Board:     Pico Plus
   Memory:    33MB available / 55MB total
@@ -149,6 +152,17 @@ You'll see the LuckyClaw banner:
 
 ```bash
 luckyclaw onboard
+```
+
+If LuckyClaw detects an existing setup, the wizard now asks you to choose:
+
+1. **Fresh onboard (recommended)** — wipes workspace and starts clean
+2. **Keep existing files** — keeps current workspace and updates config
+
+To force a clean reset directly:
+
+```bash
+luckyclaw onboard --wipe-workspace
 ```
 
 The wizard walks you through:
@@ -245,6 +259,8 @@ Plus other channels inherited from upstream (LINE, QQ, DingTalk, Feishu, MaixCam
 | Command                     | Description                     |
 | --------------------------- | ------------------------------- |
 | `luckyclaw onboard`         | Interactive setup wizard        |
+| `luckyclaw onboard --wipe-workspace` | Force fresh onboard (wipes workspace) |
+| `luckyclaw config-reset`   | Delete config.json (keeps workspace, needs re-onboard) |
 | `luckyclaw status`          | System status (board, memory, gateway) |
 | `luckyclaw gateway`         | Start the AI gateway            |
 | `luckyclaw gateway -b`      | Start the AI gateway in background |
@@ -282,22 +298,26 @@ Config: `/oem/.luckyclaw/config.json`
 |--------------------|-------------------------------|
 | Provider           | `openrouter`                 |
 | Model              | `stepfun/step-3.5-flash:free` |
-| Max Tokens         | `16384`                       |
+| Max Tokens         | `auto-clamped to 20% of context_window, max 16384` |
+| Allow Unsafe Max Tokens | `false` (clamp enabled) |
 | Context Window     | Model-specific (queried via API) |
 | Temperature        | `0.6`                         |
 | Max Tool Iterations| `25`                          |
 
+> **Max Tokens Safety:** On startup (and during onboarding), `max_tokens` is automatically clamped to `min(20% of context_window, 16384, provider_max_output)` with a floor of 1024. This prevents context-window overflow errors on models like DeepSeek v3.2 while preserving usable output sizes. Existing configs are auto-healed on gateway start.
+>
+> To disable clamping and use a custom `max_tokens` value exactly as set, add `"allow_unsafe_max_tokens": true` to your `config.json` under `agents.defaults`. This opt-out is intended for advanced users who want maximum output size at the risk of overflow errors.
+
 ### Workspace Layout
 
-On-device path: `/oem/.luckyclaw/workspace/`
+On-device path: `/root/.luckyclaw/workspace/`
 
 ```
-/oem/.luckyclaw/workspace/
+/root/.luckyclaw/workspace/
 ├── sessions/          # Conversation history
 ├── memory/            # Long-term memory (MEMORY.md)
 ├── cron/              # Scheduled jobs
 ├── skills/            # Custom skills
-├── AGENT.md           # Agent behavior guide
 ├── HEARTBEAT.md       # Periodic tasks (every 30 min)
 ├── IDENTITY.md        # Agent identity
 └── USER.md            # User preferences
@@ -324,13 +344,13 @@ Ask the agent to set reminders naturally:
 - *"Remind me every 2 hours to drink water"*
 - *"Set an alarm for 9am daily"*
 
-Jobs are stored in `/oem/.luckyclaw/workspace/cron/` and persist across restarts.
+Jobs are stored in `/root/.luckyclaw/workspace/cron/` and persist across restarts.
 
 ---
 
 ## 🔒 Security
 
-LuckyClaw runs in a sandboxed workspace by default. The agent can only access files within `/oem/.luckyclaw/workspace/`.
+LuckyClaw runs in a sandboxed workspace by default. The agent can only access files within `/root/.luckyclaw/workspace/`.
 
 To allow system-wide access (use with caution):
 
@@ -404,9 +424,9 @@ LuckyClaw v0.2.0+ embeds its own timezone database and sets the timezone during 
 
 | Destination | Path / Command |
 |-------------|----------------|
-| **Config File** | `nano ~/.luckyclaw/config.json` |
-| **Workspace** | `~/.luckyclaw/workspace/` |
-| **Skills Dir** | `~/.luckyclaw/workspace/skills/` |
+| **Config File** | `nano /oem/.luckyclaw/config.json` |
+| **Workspace** | `/root/.luckyclaw/workspace/` |
+| **Skills Dir** | `/root/.luckyclaw/workspace/skills/` |
 | **Logs** | `tail -f /var/log/luckyclaw.log` |
 | **Gateway Status** | `luckyclaw status` |
 

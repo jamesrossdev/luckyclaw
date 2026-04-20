@@ -48,11 +48,23 @@ Items are prioritized by readiness and impact. Items may be moved between versio
 - `luckyclaw set-ip --dhcp` — restore DHCP (auto-reboot)
 - Init script `override_static_ip()` — kills vendor `udhcpc` and reapplies static config on boot
 
-## v0.2.4 (Next Minor)
+## v0.2.4 ✅
 
-- PID validation & stale file cleanup (port from PicoClaw `pkg/pid`)
-- Cache system prompt between messages (file-modification-time check)
-- Pre-emptive context compression (compress before 400 error)
+- **Storage fix: Workspace relocated to rootfs** — workspace now lives at `/root/.luckyclaw/workspace/` instead of `/oem/.luckyclaw/workspace/`. This uses rootfs free space (~143MB) instead of the cramped `/oem` partition (~20MB). Config and heartbeat log stay on `/oem`. Existing workspaces trigger a migration notice on upgrade.
+- `luckyclaw set-ip <IP>` — set static IP with IPv4 validation (octets 0-255, gateway collision check, subnet validation) and confirmation prompt before applying
+- `luckyclaw set-ip --dhcp` — restore DHCP with confirmation prompt
+- Init script `override_static_ip()` — enhanced with validation-aware static IP application
+- **Allowlist normalization fix** — WhatsApp sender IDs now canonicalize correctly for allowlist matching, resolving message drops after restart
+- **Heartbeat template migration** — now non-destructive: preserves user-edited `HEARTBEAT.md` when custom tasks exist, creates backup before auto-migration
+- **`etc/` overlay sync restored** — `scripts/sync-overlay.sh` now syncs init script and SSH banner into SDK overlay again (was inadvertently dropped in v0.2.4 development)
+- **Onboarding idempotency** — re-running `luckyclaw onboard` now merges with existing config (preserving values) and skips workspace template overwrite for non-skill files
+- **Safe token clamp** — `max_tokens` is auto-clamped to `min(20% of context_window, 16384, provider_max_output)`, floor 1024, preventing context-window overflow errors on large-context models like DeepSeek v3.2
+
+## v0.2.5 (Planned)
+
+- Evaluate MCP (Model Context Protocol) support — external tool server integration
+- Smart one-time cron fallback — auto-detect fully-specified cron expressions and set `DeleteAfterRun=true` so one-time clock reminders don't leave orphaned jobs
+- Explore pre-emptive context compression — compress history before API call instead of after 400 error
 
 ## v0.2.x (Future Minor)
 
@@ -62,11 +74,13 @@ Items are prioritized by readiness and impact. Items may be moved between versio
 
 ## Future
 
-- Telegram MarkdownV2 Sanitizer (`parse_markdown_to_md_v2.go`) port
-- Custom DNS Backup Resolver (`0fe0582`) port
-- Cron tool `at_time` parameter (ISO-8601 absolute time for reminders)
-- Cross-platform flashing tool (replace Windows-only SOCToolKit)
-- Skill marketplace / remote skill install
+- System prompt caching (requires dynamic/static section split to avoid stale timestamps)
+- Telegram MarkdownV2 sanitizer (`parse_markdown_to_md_v2.go`) port
+- Custom DNS backup resolver (`0fe0582`) port
+- `at_time` parameter for cron tool (ISO-8601 absolute time) — revisit if LLM behavior changes
+- Cross-platform flashing tool (Windows/Linux/macOS replacement for SOCToolKit)
+- Agent browser skill — see IMPROVEMENTS.md (Pro/Max boards only, 100MB+ RAM required)
+- GitHub PR review skill — see IMPROVEMENTS.md
 
 ## Upstream Watchlist
 
@@ -76,5 +90,3 @@ Items from PicoClaw upstream that may be worth integrating if they mature and be
 - Token masking in logs — hides bot tokens from log output (security)
 - Symlinked path whitelist fix — tool path security hardening
 - `pkg/identity` — identity/personality management (336 lines)
-
-

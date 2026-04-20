@@ -79,6 +79,7 @@ type WhatsAppChannel struct {
 	*channels.BaseChannel
 	config            config.WhatsAppConfig
 	storePath         string
+	startupTime       time.Time // set when channel starts; used to suppress verification codes
 	client            *whatsmeow.Client
 	container         *sqlstore.Container
 	db                *sql.DB
@@ -117,6 +118,7 @@ func NewWhatsAppChannel(
 func (c *WhatsAppChannel) Start(ctx context.Context) error {
 	logger.InfoCF("whatsapp", "Starting WhatsApp native channel (whatsmeow)", map[string]any{"store": c.storePath})
 
+	c.startupTime = time.Now()
 	c.reconnectMu.Lock()
 	c.stopping.Store(false)
 	c.reconnecting = false
@@ -388,32 +390,103 @@ func (c *WhatsAppChannel) startStanzaCleanup() {
 	})
 }
 
+// isStartupVerificationCode drops the exact onboarding verification message replay
+// within the startup window. It requires a marker file written at pairing time
+// containing the expected code, sender, and creation time. If any condition
+// fails (no marker, wrong sender, wrong code, expired TTL) the message is NOT
+// dropped — protecting users from legitimate 4–6 digit codes (OTP/PIN/order)
+// after restarts or brief reconnects.
+func (c *WhatsAppChannel) isStartupVerificationCode(content, senderUser string) bool {
+	marker, err := readStartupMarker(c.storePath)
+	if err != nil || marker == nil {
+		return false
+	}
+	if strings.TrimSpace(marker.Code) == "" || strings.TrimSpace(marker.Sender) == "" {
+		removeStartupMarker(c.storePath)
+		return false
+	}
+	if time.Unix(marker.CreatedAt, 0).Add(startupMarkerTTL).Before(time.Now()) {
+		removeStartupMarker(c.storePath)
+		return false
+	}
+	trimmed := strings.TrimSpace(content)
+	if trimmed != marker.Code {
+		return false
+	}
+	if senderUser != marker.Sender {
+		return false
+	}
+	removeStartupMarker(c.storePath)
+	logger.InfoCF("whatsapp", "Dropped onboarding verification code replay", map[string]any{
+		"code":    marker.Code,
+		"sender":  marker.Sender,
+		"elapsed": time.Since(time.Unix(marker.CreatedAt, 0)).Round(time.Second).String(),
+	})
+	return true
+}
+
 func (c *WhatsAppChannel) handleIncoming(evt *events.Message) {
 	if evt.Message == nil {
 		return
 	}
 
 	stanzaID := evt.Info.ID
+	senderUser := evt.Info.Sender.User
 	if c.isDuplicateStanza(stanzaID) {
 		logger.DebugCF("whatsapp", "Skipping duplicate stanza", map[string]any{
 			"stanza_id": stanzaID,
 		})
 		return
 	}
+
+	// Build senderID for allowlist/logging from the sender user part first.
+	// If an alternate identity is available, we attach it as a compound form
+	// "phone|alt@domain"; BaseChannel.IsAllowed canonicalizes this for ID-only matching.
+	senderID := senderUser
+	if idx := strings.Index(senderUser, "|"); idx > 0 {
+		senderID = senderUser[:idx]
+	}
 	c.startStanzaCleanup()
 
-	senderID := evt.Info.Sender.User
+	// Resolve compound identity: phone-only or LID-only. Derive the missing side
+	// for diagnostics while allow_from matching remains canonicalized in BaseChannel.
+	var altID types.JID
+	c.mu.Lock()
+	altClient := c.client
+	c.mu.Unlock()
+	if altClient != nil && altClient.Store != nil {
+		if resolvedAltID, altErr := altClient.Store.GetAltJID(context.Background(), evt.Info.Sender); altErr != nil {
+			logger.DebugCF("whatsapp", "GetAltJID failed", map[string]any{"error": altErr, "sender": evt.Info.Sender.User})
+		} else {
+			altID = resolvedAltID
+		}
+	}
+	if !altID.IsEmpty() {
+		senderID = evt.Info.Sender.User + "|" + altID.String()
+	}
+
 	chatID := evt.Info.Chat.String()
+
+	// Sender identity normalization for allow_from matching happens in BaseChannel.
+	content := evt.Message.GetConversation()
+	if content == "" && evt.Message.ExtendedTextMessage != nil {
+		content = evt.Message.ExtendedTextMessage.GetText()
+	}
+
+	if c.isStartupVerificationCode(content, senderUser) {
+		return
+	}
 
 	logger.InfoCF(
 		"whatsapp",
 		"RAW WhatsApp message received",
 		map[string]any{
-			"sender_user": senderID,
-			"chat_string": chatID,
-			"is_from_me":  evt.Info.IsFromMe,
-			"stanza_id":   evt.Info.ID,
-			"sender_jid":  evt.Info.Sender.String(),
+			"sender_user":    senderID,
+			"chat_string":    chatID,
+			"is_from_me":     evt.Info.IsFromMe,
+			"debug_senderID": senderID,
+			"stanza_id":      evt.Info.ID,
+			"sender_jid":     evt.Info.Sender.String(),
 		},
 	)
 
@@ -434,7 +507,7 @@ func (c *WhatsAppChannel) handleIncoming(evt *events.Message) {
 		return
 	}
 
-	// v0.2.2-rc6 Rate Limiter (Disabled by default)
+	// Rate Limiter (Disabled by default)
 	const maxMessagesPerMinute = 5
 	const rateLimitEnabled = false
 	if rateLimitEnabled {
@@ -454,11 +527,6 @@ func (c *WhatsAppChannel) handleIncoming(evt *events.Message) {
 			logger.WarnCF("whatsapp", "Rate limit exceeded, dropping message", map[string]any{"sender": senderID})
 			return
 		}
-	}
-
-	content := evt.Message.GetConversation()
-	if content == "" && evt.Message.ExtendedTextMessage != nil {
-		content = evt.Message.ExtendedTextMessage.GetText()
 	}
 
 	var mediaPaths []string
@@ -642,7 +710,7 @@ func (c *WhatsAppChannel) handleIncoming(evt *events.Message) {
 	// Cleanup for messages that reach the bus is handled in loop.go's centralized cleanup.
 	// Early-exit paths below (group filter, empty content) clean up explicitly.
 
-	// --- v0.2.2-rc4: Group Spam Filtering & Contextual Quotes ---
+	// Group Spam Filtering & Contextual Quotes
 	var isGroup = strings.HasSuffix(chatID, "@g.us")
 	var isMentioned = false
 	var isReplyToBot = false
