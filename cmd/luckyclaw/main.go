@@ -164,7 +164,8 @@ func main() {
 
 	switch command {
 	case "onboard":
-		onboard()
+		wipeWorkspace := len(os.Args) > 2 && os.Args[2] == "--wipe-workspace"
+		onboard(wipeWorkspace)
 	case "agent":
 		agentCmd()
 	case "gateway":
@@ -248,11 +249,11 @@ func main() {
 }
 
 func printHelp() {
-	fmt.Printf("%s luckyclaw - Personal AI Assistant v%s\n\n", logo, version)
-	fmt.Println("Usage: luckyclaw <command>")
+	fmt.Printf("%s luckyclaw - Personal AI Assistant %s\n\n", logo, version)
+	fmt.Println("Usage: luckyclaw <command> [options]")
 	fmt.Println()
 	fmt.Println("Commands:")
-	fmt.Println("  onboard       Initialize luckyclaw configuration and workspace")
+	fmt.Println("  onboard                    Initialize luckyclaw configuration and workspace")
 	fmt.Println("  agent         Interact with the agent directly")
 	fmt.Println("  gateway       Start luckyclaw gateway (-b for background)")
 	fmt.Println("  stop          Stop running gateway")
@@ -268,6 +269,9 @@ func printHelp() {
 	fmt.Println("  set-ip --dhcp Restore DHCP (automatic IP)")
 	fmt.Println("  version       Show version information")
 	fmt.Println("  help          Show this help message")
+	fmt.Println()
+	fmt.Println("Onboard flags:")
+	fmt.Println("  --wipe-workspace   Use with 'luckyclaw onboard' to wipe workspace first")
 }
 
 // promptLine reads a single line from stdin with a prompt.
@@ -282,6 +286,48 @@ func promptLine(prompt string) string {
 func promptYN(prompt string) bool {
 	resp := strings.ToLower(promptLine(prompt + " (y/n): "))
 	return resp == "y" || resp == "yes"
+}
+
+func validateWorkspaceWipePath(workspace string) error {
+	cleaned := filepath.Clean(strings.TrimSpace(workspace))
+	if cleaned == "" || cleaned == "." {
+		return fmt.Errorf("workspace path is empty")
+	}
+	if !filepath.IsAbs(cleaned) {
+		return fmt.Errorf("workspace path must be absolute")
+	}
+
+	dangerousRoots := map[string]struct{}{
+		"/":      {},
+		"/bin":   {},
+		"/boot":  {},
+		"/dev":   {},
+		"/etc":   {},
+		"/home":  {},
+		"/lib":   {},
+		"/lib64": {},
+		"/mnt":   {},
+		"/oem":   {},
+		"/opt":   {},
+		"/proc":  {},
+		"/root":  {},
+		"/run":   {},
+		"/sbin":  {},
+		"/srv":   {},
+		"/sys":   {},
+		"/tmp":   {},
+		"/usr":   {},
+		"/var":   {},
+	}
+	if _, blocked := dangerousRoots[cleaned]; blocked {
+		return fmt.Errorf("workspace path points to a protected system directory")
+	}
+
+	if filepath.Base(cleaned) != "workspace" || filepath.Base(filepath.Dir(cleaned)) != ".luckyclaw" {
+		return fmt.Errorf("workspace path must end with '/.luckyclaw/workspace'")
+	}
+
+	return nil
 }
 
 // validateOpenRouterKey tests an OpenRouter API key via the /auth/key endpoint.
@@ -435,23 +481,34 @@ func detectBoardModel() string {
 	return "Pico Plus"
 }
 
-func onboard() {
+func onboard(wipeWorkspace bool) {
 	stopCmd()
 	configPath := getConfigPath()
 
 	fmt.Println()
 	fmt.Println("  ╔══════════════════════════════════════╗")
 	fmt.Println("  ║  🦞 LuckyClaw Setup Wizard           ║")
-	fmt.Printf("  ║  v%-35s║\n", version)
+	fmt.Printf("  ║  %-36s║\n", version)
 	fmt.Println("  ╚══════════════════════════════════════╝")
-	fmt.Println()
+	// Build config in memory — only save at the very end (atomic)
+	cfg := config.DefaultConfig()
+	hasExistingConfig := false
+	if _, err := os.Stat(configPath); err == nil {
+		hasExistingConfig = true
+		existingCfg, loadErr := config.LoadConfig(configPath)
+		if loadErr != nil {
+			fmt.Printf("  Error loading existing config: %v\n", loadErr)
+			fmt.Println("  Fix or reset your config, then run onboard again.")
+			os.Exit(1)
+		}
+		cfg = existingCfg
+	}
 
-	// Show hardware info
+	// Show hardware info (needs config for workspace path)
 	model := detectBoardModel()
 	if model != "" {
 		fmt.Printf("  Board: %s\n", model)
 	}
-	// Read memory from /proc/meminfo
 	if memData, err := os.ReadFile("/proc/meminfo"); err == nil {
 		lines := strings.Split(string(memData), "\n")
 		var total, avail int
@@ -467,18 +524,74 @@ func onboard() {
 			fmt.Printf("  Memory: %dMB available / %dMB total\n", avail/1024, total/1024)
 		}
 	}
+
+	// Workspace detection — show before any setup steps so user can backup first
+	workspace := filepath.Clean(cfg.WorkspacePath())
+	workspaceExists := false
+	if info, err := os.Stat(workspace); err == nil && info.IsDir() {
+		workspaceExists = true
+	}
+	hasExistingSetup := hasExistingConfig || workspaceExists
+
+	fmt.Println()
+	fmt.Println("  Backup guide: docs/BACKUP_RESTORE.md")
 	fmt.Println()
 
-	// Build config in memory — only save at the very end (atomic)
-	cfg := config.DefaultConfig()
-	if _, err := os.Stat(configPath); err == nil {
-		existingCfg, loadErr := config.LoadConfig(configPath)
-		if loadErr != nil {
-			fmt.Printf("  Error loading existing config: %v\n", loadErr)
-			fmt.Println("  Fix or reset your config, then run onboard again.")
+	freshOnboard := wipeWorkspace
+	if hasExistingSetup {
+		fmt.Println("  Existing setup detected.")
+		fmt.Println("  1) Fresh onboard (recommended)")
+		fmt.Println("     Wipe workspace and start clean.")
+		fmt.Println("  2) Keep existing files (not recommended for first-time setup)")
+		fmt.Println("     Keep current workspace files and update config only.")
+		fmt.Println()
+
+		if wipeWorkspace {
+			fmt.Println("  --wipe-workspace detected: using Fresh onboard.")
+			fmt.Println()
+		} else {
+			for {
+				choice := strings.TrimSpace(promptLine("  Choose [1/2] (default 1): "))
+				if choice == "" || choice == "1" {
+					freshOnboard = true
+					break
+				}
+				if choice == "2" {
+					freshOnboard = false
+					break
+				}
+				fmt.Println("  Please enter 1 or 2.")
+			}
+			fmt.Println()
+		}
+	}
+
+	if freshOnboard {
+		if err := validateWorkspaceWipePath(workspace); err != nil {
+			fmt.Printf("  Refusing to wipe unsafe workspace path: %s\n", workspace)
+			fmt.Printf("  Reason: %v\n", err)
+			fmt.Printf("  Fix 'agents.defaults.workspace' in %s and retry.\n", configPath)
+			fmt.Println("  Onboarding canceled. No changes made.")
+			return
+		}
+
+		fmt.Printf("  Wiping workspace: %s ... ", workspace)
+		if err := os.RemoveAll(workspace); err != nil {
+			fmt.Printf("failed (%v)\n", err)
 			os.Exit(1)
 		}
-		cfg = existingCfg
+		if err := os.MkdirAll(workspace, 0755); err != nil {
+			fmt.Printf("failed (%v)\n", err)
+			os.Exit(1)
+		}
+		fmt.Println("✓")
+		fmt.Println()
+	} else if hasExistingSetup {
+		fmt.Println("  Keeping existing workspace files.")
+		fmt.Println()
+	}
+
+	if hasExistingConfig {
 		fmt.Println("  Existing config detected. Blank inputs keep current values.")
 		fmt.Println()
 	}
@@ -703,8 +816,7 @@ func onboard() {
 	}
 	fmt.Printf("  Config saved: %s ✓\n", configPath)
 
-	// Create workspace
-	workspace := cfg.WorkspacePath()
+	// Always run createWorkspaceTemplates — it skips existing non-skill files
 	createWorkspaceTemplates(workspace)
 
 	// Patch USER.md with selected timezone

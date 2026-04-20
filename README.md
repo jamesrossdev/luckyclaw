@@ -154,6 +154,17 @@ You'll see the LuckyClaw banner:
 luckyclaw onboard
 ```
 
+If LuckyClaw detects an existing setup, the wizard now asks you to choose:
+
+1. **Fresh onboard (recommended)** — wipes workspace and starts clean
+2. **Keep existing files** — keeps current workspace and updates config
+
+To force a clean reset directly:
+
+```bash
+luckyclaw onboard --wipe-workspace
+```
+
 The wizard walks you through:
 
 1. **API Provider** — OpenRouter - but you can manually set up OpenAI, Anthropic, Ollama and others in config.json
@@ -248,6 +259,7 @@ Plus other channels inherited from upstream (LINE, QQ, DingTalk, Feishu, MaixCam
 | Command                     | Description                     |
 | --------------------------- | ------------------------------- |
 | `luckyclaw onboard`         | Interactive setup wizard        |
+| `luckyclaw onboard --wipe-workspace` | Force fresh onboard (wipes workspace) |
 | `luckyclaw config-reset`   | Delete config.json (keeps workspace, needs re-onboard) |
 | `luckyclaw status`          | System status (board, memory, gateway) |
 | `luckyclaw gateway`         | Start the AI gateway            |
