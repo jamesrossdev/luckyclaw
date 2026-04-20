@@ -451,11 +451,14 @@ func (c *WhatsAppChannel) handleIncoming(evt *events.Message) {
 	// Resolve compound identity: phone-only or LID-only. Derive the missing side
 	// for diagnostics while allow_from matching remains canonicalized in BaseChannel.
 	var altID types.JID
-	{ // limit err scope
-		var altErr error
-		altID, altErr = c.client.Store.GetAltJID(context.Background(), evt.Info.Sender)
-		if altErr != nil {
+	c.mu.Lock()
+	altClient := c.client
+	c.mu.Unlock()
+	if altClient != nil && altClient.Store != nil {
+		if resolvedAltID, altErr := altClient.Store.GetAltJID(context.Background(), evt.Info.Sender); altErr != nil {
 			logger.DebugCF("whatsapp", "GetAltJID failed", map[string]any{"error": altErr, "sender": evt.Info.Sender.User})
+		} else {
+			altID = resolvedAltID
 		}
 	}
 	if !altID.IsEmpty() {
