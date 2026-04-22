@@ -278,6 +278,44 @@ These skills require significant RAM and are listed in `docs/ROADMAP.md` under F
 
 **Reference**: [ZeroClaw PR Review Skill](https://github.com/zeroclaw-labs/zeroclaw/blob/master/.claude/skills/github-pr-review/SKILL.md)
 
+## Multi-Assistant Support
+**Target**: v0.2.6
+**Priority**: Medium
+
+### Problem
+A single LuckyClaw instance on Pro/Max hardware can handle multiple topics simultaneously, but users currently need separate devices or manual session switching. There is no way to run independent AI assistants (e.g., "Home Assistant" for household tasks, "Coding Assistant" for projects) on the same device with isolated memory and tools.
+
+### Proposed Solution
+Allow multiple named assistant profiles, each with its own system prompt, skills, and conversation history. A meta prompt (or frontend routing layer) dispatches incoming messages to the appropriate assistant based on name mention or topic.
+
+### Scope
+- Multiple `AssistantID` profiles in `config.json`
+- Each profile: `id`, `name`, `systemPrompt`, `enabledChannels`, `skills`
+- Dispatch via `@AssistantName` mention in Telegram/WhatsApp
+- Default dispatch to first profile for untargeted messages
+- Skills per-profile via existing channel filtering mechanism
+
+### Out of Scope (Future)
+- Per-profile API keys, separate LLM providers
+- Web dashboard, user management
+
+### Terminology
+- **Profile**: A named assistant configuration (system prompt + skills)
+- **Assistant ID**: The identifier used in `@AssistantID` mentions
+- **Dispatch**: Routing a message to the correct profile by mention
+
+### Files Affected
+- `pkg/config/config.go` — add `AssistantProfiles []Profile`
+- `pkg/agent/agent.go` — load profile by ID in runAgentLoop
+- `pkg/channels/` — strip `@AssistantID` prefix before agent dispatch
+
+### RAM Impact
+- ~2MB base per additional active profile (session storage)
+- Not recommended for Pico Plus (64MB)
+
+### Blocked by
+- Nothing. Can be implemented independently.
+
 ## Cross-Platform Flashing Tool
 
 **Priority**: Low
