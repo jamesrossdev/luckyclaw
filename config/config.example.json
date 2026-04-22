@@ -3,6 +3,7 @@
     "defaults": {
       "workspace": "~/.luckyclaw/workspace",
       "restrict_to_workspace": true,
+      "provider": "openrouter",
       "model": "stepfun/step-3.5-flash:free",
       "max_tokens": 16384,
       "allow_unsafe_max_tokens": false,
@@ -114,6 +115,10 @@
     "ollama": {
       "api_key": "",
       "api_base": "http://localhost:11434/v1"
+    },
+    "minimax": {
+      "api_key": "",
+      "api_base": ""
     }
   },
   "tools": {

@@ -32,6 +32,28 @@ func IsAudioFile(filename, contentType string) bool {
 	return false
 }
 
+// IsImageFile checks if a file is an image based on its filename extension or content type.
+func IsImageFile(filename, contentType string) bool {
+	imageExtensions := []string{".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".ico"}
+	imageTypes := []string{"image/"}
+
+	lowerName := strings.ToLower(filename)
+	for _, ext := range imageExtensions {
+		if strings.HasSuffix(lowerName, ext) {
+			return true
+		}
+	}
+
+	lowerCT := strings.ToLower(contentType)
+	for _, imgType := range imageTypes {
+		if strings.HasPrefix(lowerCT, imgType) {
+			return true
+		}
+	}
+
+	return false
+}
+
 // SanitizeFilename removes potentially dangerous characters from a filename
 // and returns a safe version for local filesystem storage.
 func SanitizeFilename(filename string) string {

@@ -51,10 +51,35 @@ func NewHTTPProvider(apiKey, apiBase, proxy string) *HTTPProvider {
 	}
 }
 
+func isMiniMaxEndpoint(apiBase string) bool {
+	base := strings.ToLower(apiBase)
+	return strings.Contains(base, "api.minimax.io") || strings.Contains(base, "api.minimaxi.com")
+}
+
+func stripThinkBlocks(content string) string {
+	cleaned := content
+	for {
+		start := strings.Index(cleaned, "<think>")
+		if start == -1 {
+			break
+		}
+		end := strings.Index(cleaned[start:], "</think>")
+		if end == -1 {
+			cleaned = cleaned[:start]
+			break
+		}
+		end += start + len("</think>")
+		cleaned = cleaned[:start] + cleaned[end:]
+	}
+	return strings.TrimSpace(cleaned)
+}
+
 func (p *HTTPProvider) Chat(ctx context.Context, messages []Message, tools []ToolDefinition, model string, options map[string]interface{}) (*LLMResponse, error) {
 	if p.apiBase == "" {
 		return nil, fmt.Errorf("API base not configured")
 	}
+
+	isMiniMax := isMiniMaxEndpoint(p.apiBase)
 
 	// Strip provider prefix from model name (e.g., moonshot/kimi-k2.5 -> kimi-k2.5)
 	// BUT NOT for OpenRouter — OpenRouter uses full model IDs like "nvidia/nemotron-3-nano-30b-a3b:free"
@@ -180,6 +205,9 @@ func (p *HTTPProvider) Chat(ctx context.Context, messages []Message, tools []Too
 		"model":    model,
 		"messages": formattedMessages,
 	}
+	if isMiniMax {
+		requestBody["reasoning_split"] = true
+	}
 
 	if len(tools) > 0 {
 		requestBody["tools"] = tools
@@ -206,14 +234,17 @@ func (p *HTTPProvider) Chat(ctx context.Context, messages []Message, tools []Too
 	}
 
 	// Enable file-parser plugin for document support (PDF, DOCX, etc.)
-	// This allows OpenRouter to parse documents for models that don't natively support them
-	requestBody["plugins"] = []map[string]interface{}{
-		{
-			"id": "file-parser",
-			"pdf": map[string]string{
-				"engine": "cloudflare-ai",
+	// This allows OpenRouter to parse documents for models that don't natively support them.
+	// Skip for MiniMax — it does not support the plugins field.
+	if !isMiniMax {
+		requestBody["plugins"] = []map[string]interface{}{
+			{
+				"id": "file-parser",
+				"pdf": map[string]string{
+					"engine": "cloudflare-ai",
+				},
 			},
-		},
+		}
 	}
 
 	jsonData, err := json.Marshal(requestBody)
@@ -280,6 +311,10 @@ func (p *HTTPProvider) parseResponse(body []byte) (*LLMResponse, error) {
 	}
 
 	choice := apiResponse.Choices[0]
+	content := choice.Message.Content
+	if isMiniMaxEndpoint(p.apiBase) && strings.Contains(content, "<think>") {
+		content = stripThinkBlocks(content)
+	}
 
 	toolCalls := make([]ToolCall, 0, len(choice.Message.ToolCalls))
 	for _, tc := range choice.Message.ToolCalls {
@@ -312,7 +347,7 @@ func (p *HTTPProvider) parseResponse(body []byte) (*LLMResponse, error) {
 	}
 
 	return &LLMResponse{
-		Content:      choice.Message.Content,
+		Content:      content,
 		ToolCalls:    toolCalls,
 		FinishReason: choice.FinishReason,
 		Usage:        apiResponse.Usage,
@@ -457,6 +492,15 @@ func CreateProvider(cfg *config.Config) (LLMProvider, error) {
 				apiBase = "localhost:4321"
 			}
 			return NewGitHubCopilotProvider(apiBase, cfg.Providers.GitHubCopilot.ConnectMode, model)
+		case "minimax":
+			if cfg.Providers.MiniMax.APIKey != "" {
+				apiBase := cfg.Providers.MiniMax.APIBase
+				if apiBase == "" {
+					apiBase = "https://api.minimax.io/v1"
+				}
+				proxy := cfg.Providers.MiniMax.Proxy
+				return NewMiniMaxProvider(cfg.Providers.MiniMax.APIKey, apiBase, proxy), nil
+			}
 
 		}
 

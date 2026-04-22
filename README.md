@@ -286,11 +286,14 @@ Config: `/oem/.luckyclaw/config.json`
 | Provider       | Purpose                    | Get API Key                                            |
 | -------------- | -------------------------- | ------------------------------------------------------ |
 | `openrouter`   | Many models (recommended)  | [openrouter.ai/keys](https://openrouter.ai/keys)      |
+| `minimax`      | MiniMax models             | [platform.minimax.io](https://platform.minimax.io) — see [docs/MINIMAX.md](docs/MINIMAX.md) for capabilities/caveats |
 | `openai`       | GPT models                 | [platform.openai.com](https://platform.openai.com)     |
 | `anthropic`    | Claude models              | [console.anthropic.com](https://console.anthropic.com) |
 | `gemini`       | Google Gemini              | [aistudio.google.com](https://aistudio.google.com)     |
 | `groq`         | Fast inference + voice     | [console.groq.com](https://console.groq.com)           |
 | `ollama`       | Local models (no API key)  | [ollama.com](https://ollama.com)                       |
+
+> Note: Some provider links in the docs may be referral links. This does not change recommendations and helps support project maintenance.
 
 ### Default Configuration
 
@@ -307,6 +310,35 @@ Config: `/oem/.luckyclaw/config.json`
 > **Max Tokens Safety:** On startup (and during onboarding), `max_tokens` is automatically clamped to `min(20% of context_window, 16384, provider_max_output)` with a floor of 1024. This prevents context-window overflow errors on models like DeepSeek v3.2 while preserving usable output sizes. Existing configs are auto-healed on gateway start.
 >
 > To disable clamping and use a custom `max_tokens` value exactly as set, add `"allow_unsafe_max_tokens": true` to your `config.json` under `agents.defaults`. This opt-out is intended for advanced users who want maximum output size at the risk of overflow errors.
+
+### Configuring Non-OpenRouter Providers
+
+After onboarding, you can switch to a different provider by editing `config.json`:
+
+```json
+{
+  "agents": {
+    "defaults": {
+      "provider": "minimax",
+      "model": "minimax-m2.7"
+    }
+  },
+  "providers": {
+    "minimax": {
+      "api_key": "YOUR_API_KEY",
+      "api_base": ""
+    }
+  }
+}
+```
+
+The key settings are:
+- **`agents.defaults.provider`** — provider name (e.g., `minimax`, `openai`, `anthropic`)
+- **`agents.defaults.model`** — model identifier for that provider
+- **`providers.<name>.api_key`** — your API key (required)
+- **`providers.<name>.api_base`** — optional custom endpoint (defaults to provider's standard URL)
+
+For MiniMax specifically, see the [MiniMax Provider Docs](docs/MINIMAX.md) for model options and details.
 
 ### Workspace Layout
 
