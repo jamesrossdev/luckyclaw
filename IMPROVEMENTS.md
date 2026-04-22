@@ -205,6 +205,22 @@ PicoClaw adds:
 
 **Blocked by**: Nothing. Can be implemented independently.
 
+## Onboarding
+
+### Onboarding Provider Expansion (Post v0.2.x)
+**Priority**: Low
+**Description**: Extend onboarding to support provider selection beyond OpenRouter (e.g., MiniMax, Groq, Zhipu) as an optional advanced mode, while keeping the current simple OpenRouter-first default for normal users.
+
+**Implementation approach**:
+- Add an optional "Advanced setup" mode in `luckyclaw onboard` that offers provider picker (dropdown or numbered menu)
+- Simple default remains OpenRouter-only (current behavior)
+- Advanced mode allows selecting a different provider and entering provider-specific credentials
+- Keep onboarding flow short for both paths
+
+**Benefit**: Makes it easier for users who want to use non-OpenRouter providers without manually editing config.json.
+
+**Blocked by**: None. Can be implemented independently.
+
 ## Future Skills (Pro/Max Only)
 
 These skills require significant RAM and are listed in `docs/ROADMAP.md` under Future. They are documented here for reference but are not planned for near-term implementation on Pico Plus hardware.

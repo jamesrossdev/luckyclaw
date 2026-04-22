@@ -401,6 +401,7 @@ func (c *DiscordChannel) handleMessage(s *discordgo.Session, m *discordgo.Messag
 
 	for _, attachment := range m.Attachments {
 		isAudio := utils.IsAudioFile(attachment.Filename, attachment.ContentType)
+		isImage := utils.IsImageFile(attachment.Filename, attachment.ContentType)
 
 		if isAudio {
 			localPath := c.downloadAttachment(attachment.URL, attachment.Filename)
@@ -411,7 +412,7 @@ func (c *DiscordChannel) handleMessage(s *discordgo.Session, m *discordgo.Messag
 				if c.transcriber != nil && c.transcriber.IsAvailable() {
 					ctx, cancel := context.WithTimeout(c.getContext(), transcriptionTimeout)
 					result, err := c.transcriber.Transcribe(ctx, localPath)
-					cancel() // Release context resources immediately to avoid leak in loop
+					cancel()
 
 					if err != nil {
 						logger.ErrorCF("discord", "Voice transcription failed", map[string]any{
@@ -434,11 +435,12 @@ func (c *DiscordChannel) handleMessage(s *discordgo.Session, m *discordgo.Messag
 					"url":      attachment.URL,
 					"filename": attachment.Filename,
 				})
-				mediaPaths = append(mediaPaths, attachment.URL)
 				content = appendContent(content, fmt.Sprintf("[attachment: %s]", attachment.URL))
 			}
-		} else {
+		} else if isImage {
 			mediaPaths = append(mediaPaths, attachment.URL)
+			content = appendContent(content, fmt.Sprintf("[image attachment: %s]", attachment.Filename))
+		} else {
 			content = appendContent(content, fmt.Sprintf("[attachment: %s]", attachment.URL))
 		}
 	}
