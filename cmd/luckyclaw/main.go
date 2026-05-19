@@ -288,6 +288,92 @@ func promptYN(prompt string) bool {
 	return resp == "y" || resp == "yes"
 }
 
+type onboardingProviderOption struct {
+	ID             string
+	Display        string
+	DefaultModel   string
+	DefaultAPIBase string
+	KeyURL         string
+}
+
+func onboardingProviderOptions() []onboardingProviderOption {
+	return []onboardingProviderOption{
+		{ID: "anthropic", Display: "Anthropic", DefaultModel: "claude-3-5-sonnet-latest", DefaultAPIBase: "https://api.anthropic.com/v1", KeyURL: "https://console.anthropic.com"},
+		{ID: "deepseek", Display: "DeepSeek", DefaultModel: "deepseek-chat", DefaultAPIBase: "https://api.deepseek.com/v1", KeyURL: "https://platform.deepseek.com"},
+		{ID: "gemini", Display: "Gemini", DefaultModel: "gemini-2.0-flash", DefaultAPIBase: "https://generativelanguage.googleapis.com/v1beta", KeyURL: "https://aistudio.google.com"},
+		{ID: "groq", Display: "Groq", DefaultModel: "llama-3.1-8b-instant", DefaultAPIBase: "https://api.groq.com/openai/v1", KeyURL: "https://console.groq.com"},
+		{ID: "minimax", Display: "MiniMax", DefaultModel: "minimax-m2.7", DefaultAPIBase: "https://api.minimax.io/v1", KeyURL: "https://platform.minimax.io"},
+		{ID: "moonshot", Display: "Moonshot", DefaultModel: "kimi-k2.5", DefaultAPIBase: "https://api.moonshot.cn/v1", KeyURL: "https://platform.moonshot.cn"},
+		{ID: "nvidia", Display: "NVIDIA", DefaultModel: "nvidia/llama-3.3-nemotron-super-49b-v1", DefaultAPIBase: "https://integrate.api.nvidia.com/v1", KeyURL: "https://build.nvidia.com"},
+		{ID: "ollama", Display: "Ollama", DefaultModel: "llama3.1", DefaultAPIBase: "http://localhost:11434/v1", KeyURL: "https://ollama.com"},
+		{ID: "openai", Display: "OpenAI", DefaultModel: "gpt-4o-mini", DefaultAPIBase: "https://api.openai.com/v1", KeyURL: "https://platform.openai.com"},
+		{ID: "openrouter", Display: "OpenRouter", DefaultModel: "stepfun/step-3.5-flash:free", DefaultAPIBase: "https://openrouter.ai/api/v1", KeyURL: "https://openrouter.ai/keys"},
+		{ID: "shengsuanyun", Display: "ShengSuanYun", DefaultModel: "deepseek-chat", DefaultAPIBase: "https://router.shengsuanyun.com/api/v1", KeyURL: "https://router.shengsuanyun.com"},
+		{ID: "vllm", Display: "vLLM", DefaultModel: "custom-model", DefaultAPIBase: "http://localhost:8000/v1", KeyURL: ""},
+		{ID: "zhipu", Display: "Zhipu", DefaultModel: "glm-4-flash", DefaultAPIBase: "https://open.bigmodel.cn/api/paas/v4", KeyURL: "https://open.bigmodel.cn"},
+	}
+}
+
+func getProviderConfigRef(cfg *config.Config, providerID string) *config.ProviderConfig {
+	switch providerID {
+	case "openrouter":
+		return &cfg.Providers.OpenRouter
+	case "minimax":
+		return &cfg.Providers.MiniMax
+	case "openai":
+		return &cfg.Providers.OpenAI
+	case "anthropic":
+		return &cfg.Providers.Anthropic
+	case "gemini":
+		return &cfg.Providers.Gemini
+	case "groq":
+		return &cfg.Providers.Groq
+	case "zhipu":
+		return &cfg.Providers.Zhipu
+	case "deepseek":
+		return &cfg.Providers.DeepSeek
+	case "moonshot":
+		return &cfg.Providers.Moonshot
+	case "nvidia":
+		return &cfg.Providers.Nvidia
+	case "shengsuanyun":
+		return &cfg.Providers.ShengSuanYun
+	case "ollama":
+		return &cfg.Providers.Ollama
+	case "vllm":
+		return &cfg.Providers.VLLM
+	default:
+		return nil
+	}
+}
+
+func promptNumeric(title string, options []string, defaultIndex int) int {
+	if len(options) == 0 {
+		return -1
+	}
+
+	selected := defaultIndex
+	if selected < 0 || selected >= len(options) {
+		selected = 0
+	}
+
+	for {
+		fmt.Printf("  %s\n", title)
+		for i, opt := range options {
+			fmt.Printf("  %d) %s\n", i+1, opt)
+		}
+		choice := strings.TrimSpace(promptLine(fmt.Sprintf("  Choose [1-%d] (default %d): ", len(options), selected+1)))
+		if choice == "" {
+			return selected
+		}
+		n, err := strconv.Atoi(choice)
+		if err == nil && n >= 1 && n <= len(options) {
+			return n - 1
+		}
+		fmt.Println("  Invalid choice.")
+	}
+}
+
 func validateWorkspaceWipePath(workspace string) error {
 	cleaned := filepath.Clean(strings.TrimSpace(workspace))
 	if cleaned == "" || cleaned == "." {
@@ -596,52 +682,136 @@ func onboard(wipeWorkspace bool) {
 		fmt.Println()
 	}
 
-	// Step 1: OpenRouter API Key
-	fmt.Println("  Step 1: OpenRouter API Key")
-	fmt.Println("  ──────────────────────────")
-	fmt.Println("  Get your key at: https://openrouter.ai/keys")
-	fmt.Println()
+	fmt.Println("  Setup Mode")
+	fmt.Println("  ──────────")
+	modeIdx := promptNumeric("Select setup mode", []string{
+		"Quick setup (OpenRouter, recommended)",
+		"Advanced setup (custom provider)",
+	}, 0)
+	if modeIdx < 0 {
+		modeIdx = 0
+	}
 
-	apiKey := promptLine("  API Key: ")
-	if apiKey == "" {
-		fmt.Println("  Skipped — edit ~/.luckyclaw/config.json later.")
-	} else {
-		cfg.Providers.OpenRouter.APIKey = apiKey
-		cfg.Providers.OpenRouter.APIBase = "https://openrouter.ai/api/v1"
+	effectiveAPIKey := ""
 
-		fmt.Print("  Validating... ")
-		if err := validateOpenRouterKey(apiKey); err != nil {
-			fmt.Printf("⚠ %v\n", err)
-			fmt.Println("  (Key saved anyway — check it later)")
+	if modeIdx == 0 {
+		// Step 1: OpenRouter API Key
+		fmt.Println()
+		fmt.Println("  Step 1: OpenRouter API Key")
+		fmt.Println("  ──────────────────────────")
+		fmt.Println("  Get your key at: https://openrouter.ai/keys")
+		fmt.Println()
+
+		apiKey := promptLine("  API Key: ")
+		if apiKey == "" {
+			fmt.Println("  Skipped — edit ~/.luckyclaw/config.json later.")
 		} else {
-			fmt.Println("✓")
+			cfg.Providers.OpenRouter.APIKey = apiKey
+			cfg.Providers.OpenRouter.APIBase = "https://openrouter.ai/api/v1"
+
+			fmt.Print("  Validating... ")
+			if err := validateOpenRouterKey(apiKey); err != nil {
+				fmt.Printf("⚠ %v\n", err)
+				fmt.Println("  (Key saved anyway — check it later)")
+			} else {
+				fmt.Println("✓")
+			}
+		}
+
+		effectiveAPIKey = strings.TrimSpace(apiKey)
+		if effectiveAPIKey == "" {
+			effectiveAPIKey = strings.TrimSpace(cfg.Providers.OpenRouter.APIKey)
+		}
+
+		// Step 2: Model
+		fmt.Println()
+		fmt.Println("  Step 2: Model")
+		fmt.Println("  ─────────────")
+		fmt.Printf("  Default: %s\n", cfg.Agents.Defaults.Model)
+		fmt.Println("  See README.md for how to choose a model.")
+		fmt.Println()
+
+		if customModel := promptLine("  Model ID (or Enter for default): "); customModel != "" {
+			cfg.Agents.Defaults.Model = customModel
+		}
+		cfg.Agents.Defaults.Provider = "openrouter"
+
+		if effectiveAPIKey != "" {
+			ctxWindow, providerMax := fetchModelContext(effectiveAPIKey, cfg.Agents.Defaults.Model)
+			cfg.Agents.Defaults.ContextWindow = ctxWindow
+			cfg.Agents.Defaults.MaxTokens = safeMaxTokens(ctxWindow, providerMax)
+			fmt.Printf("  Model context: %d tokens, safe max output: %d tokens\n", ctxWindow, cfg.Agents.Defaults.MaxTokens)
+		}
+	} else {
+		providerOpts := onboardingProviderOptions()
+		providerLabels := make([]string, 0, len(providerOpts))
+		for _, p := range providerOpts {
+			providerLabels = append(providerLabels, p.Display)
+		}
+
+		fmt.Println()
+		fmt.Println("  Step 1: Provider")
+		fmt.Println("  ────────────────")
+		selectedIdx := promptNumeric("Select provider", providerLabels, 0)
+		if selectedIdx < 0 {
+			selectedIdx = 0
+		}
+		selected := providerOpts[selectedIdx]
+		cfg.Agents.Defaults.Provider = selected.ID
+
+		providerRef := getProviderConfigRef(cfg, selected.ID)
+		if providerRef == nil {
+			fmt.Printf("  Unsupported provider selection: %s\n", selected.ID)
+			os.Exit(1)
+		}
+
+		fmt.Printf("  Selected: %s\n", selected.Display)
+		if selected.KeyURL != "" {
+			fmt.Printf("  Get your key at: %s\n", selected.KeyURL)
+		}
+
+		apiKey := strings.TrimSpace(promptLine("  API Key (blank keeps current): "))
+		if apiKey != "" {
+			providerRef.APIKey = apiKey
+		}
+
+		defaultBase := selected.DefaultAPIBase
+		if strings.TrimSpace(providerRef.APIBase) != "" {
+			defaultBase = providerRef.APIBase
+		}
+		apiBaseInput := strings.TrimSpace(promptLine(fmt.Sprintf("  API Base (blank keeps %s): ", defaultBase)))
+		if apiBaseInput != "" {
+			providerRef.APIBase = apiBaseInput
+		} else if strings.TrimSpace(providerRef.APIBase) == "" {
+			providerRef.APIBase = selected.DefaultAPIBase
+		}
+
+		effectiveAPIKey = strings.TrimSpace(providerRef.APIKey)
+
+		fmt.Println()
+		fmt.Println("  Step 2: Model")
+		fmt.Println("  ─────────────")
+		fmt.Printf("  Suggested: %s\n", selected.DefaultModel)
+		customModel := strings.TrimSpace(promptLine(fmt.Sprintf("  Model ID (or Enter for %s): ", selected.DefaultModel)))
+		if customModel != "" {
+			cfg.Agents.Defaults.Model = customModel
+		} else {
+			cfg.Agents.Defaults.Model = selected.DefaultModel
+		}
+
+		if selected.ID == "openrouter" && effectiveAPIKey != "" {
+			ctxWindow, providerMax := fetchModelContext(effectiveAPIKey, cfg.Agents.Defaults.Model)
+			cfg.Agents.Defaults.ContextWindow = ctxWindow
+			cfg.Agents.Defaults.MaxTokens = safeMaxTokens(ctxWindow, providerMax)
+			fmt.Printf("  Model context: %d tokens, safe max output: %d tokens\n", ctxWindow, cfg.Agents.Defaults.MaxTokens)
 		}
 	}
-	effectiveAPIKey := strings.TrimSpace(apiKey)
-	if effectiveAPIKey == "" {
-		effectiveAPIKey = strings.TrimSpace(cfg.Providers.OpenRouter.APIKey)
-	}
 
-	// Step 2: Model
 	fmt.Println()
-	fmt.Println("  Step 2: Model")
-	fmt.Println("  ─────────────")
-	fmt.Printf("  Default: %s\n", cfg.Agents.Defaults.Model)
-	fmt.Println("  See README.md for how to choose a model.")
-	fmt.Println()
-
-	if customModel := promptLine("  Model ID (or Enter for default): "); customModel != "" {
-		cfg.Agents.Defaults.Model = customModel
-	}
-	cfg.Agents.Defaults.Provider = "openrouter"
-
-	// Query model context window from OpenRouter API if key is available
-	if effectiveAPIKey != "" {
-		ctxWindow, providerMax := fetchModelContext(effectiveAPIKey, cfg.Agents.Defaults.Model)
-		cfg.Agents.Defaults.ContextWindow = ctxWindow
-		cfg.Agents.Defaults.MaxTokens = safeMaxTokens(ctxWindow, providerMax)
-		fmt.Printf("  Model context: %d tokens, safe max output: %d tokens\n",
-			ctxWindow, cfg.Agents.Defaults.MaxTokens)
+	showReasoningPrompt := promptLine(fmt.Sprintf("  Show reasoning output to users? (y/N, current %t): ", cfg.Agents.Defaults.ShowReasoning))
+	if showReasoningPrompt != "" {
+		resp := strings.ToLower(strings.TrimSpace(showReasoningPrompt))
+		cfg.Agents.Defaults.ShowReasoning = resp == "y" || resp == "yes" || resp == "true"
 	}
 
 	cfg.Agents.Defaults.MaxToolIterations = 25

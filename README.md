@@ -167,11 +167,13 @@ luckyclaw onboard --wipe-workspace
 
 The wizard walks you through:
 
-1. **API Provider** — OpenRouter - but you can manually set up OpenAI, Anthropic, Ollama and others in config.json
-2. **API Key** — Paste your key, it's validated in real-time
-3. **Timezone** — Explicitly enter your IANA Zone classification via the [Wikipedia TZ Database List](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones#List) 
-4. **Messaging** — Optionally set up Telegram and/or Discord
-5. **Start gateway** — Optionally start the AI gateway in the background
+1. **Setup mode** — Quick setup (OpenRouter) or Advanced setup (custom provider)
+2. **Provider + API key** — Select provider and add your key (OpenRouter key is validated during quick setup)
+3. **Model** — Keep suggested default or set a custom model ID
+4. **Reasoning visibility** — Choose whether reasoning output is shown to users (`show_reasoning`)
+5. **Timezone** — Explicitly enter your IANA Zone classification via the [Wikipedia TZ Database List](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones#List)
+6. **Messaging** — Optionally set up Telegram and/or Discord
+7. **Start gateway** — Optionally start the AI gateway in the background
 
 ### 4. Chat!
 
@@ -306,6 +308,7 @@ Config: `/oem/.luckyclaw/config.json`
 | Context Window     | Model-specific (queried via API) |
 | Temperature        | `0.6`                         |
 | Max Tool Iterations| `25`                          |
+| Show Reasoning     | `false`                        |
 
 > **Max Tokens Safety:** On startup (and during onboarding), `max_tokens` is automatically clamped to `min(20% of context_window, 16384, provider_max_output)` with a floor of 1024. This prevents context-window overflow errors on models like DeepSeek v3.2 while preserving usable output sizes. Existing configs are auto-healed on gateway start.
 >
@@ -313,7 +316,7 @@ Config: `/oem/.luckyclaw/config.json`
 
 ### Configuring Non-OpenRouter Providers
 
-After onboarding, you can switch to a different provider by editing `config.json`:
+Advanced onboarding can configure these directly, or you can edit `config.json` manually:
 
 ```json
 {
@@ -335,6 +338,7 @@ After onboarding, you can switch to a different provider by editing `config.json
 The key settings are:
 - **`agents.defaults.provider`** — provider name (e.g., `minimax`, `openai`, `anthropic`)
 - **`agents.defaults.model`** — model identifier for that provider
+- **`agents.defaults.show_reasoning`** — `false` by default; when `true`, responses include a separate reasoning block
 - **`providers.<name>.api_key`** — your API key (required)
 - **`providers.<name>.api_base`** — optional custom endpoint (defaults to provider's standard URL)
 

@@ -56,24 +56,6 @@ func isMiniMaxEndpoint(apiBase string) bool {
 	return strings.Contains(base, "api.minimax.io") || strings.Contains(base, "api.minimaxi.com")
 }
 
-func stripThinkBlocks(content string) string {
-	cleaned := content
-	for {
-		start := strings.Index(cleaned, "<think>")
-		if start == -1 {
-			break
-		}
-		end := strings.Index(cleaned[start:], "</think>")
-		if end == -1 {
-			cleaned = cleaned[:start]
-			break
-		}
-		end += start + len("</think>")
-		cleaned = cleaned[:start] + cleaned[end:]
-	}
-	return strings.TrimSpace(cleaned)
-}
-
 func (p *HTTPProvider) Chat(ctx context.Context, messages []Message, tools []ToolDefinition, model string, options map[string]interface{}) (*LLMResponse, error) {
 	if p.apiBase == "" {
 		return nil, fmt.Errorf("API base not configured")
@@ -277,14 +259,26 @@ func (p *HTTPProvider) Chat(ctx context.Context, messages []Message, tools []Too
 		return nil, fmt.Errorf("API request failed:\n  Status: %d\n  Body:   %s", resp.StatusCode, string(body))
 	}
 
-	return p.parseResponse(body)
+	response, err := p.parseResponse(body)
+	if err != nil {
+		return nil, err
+	}
+
+	showReasoning, _ := options["show_reasoning"].(bool)
+	response.Content = BuildUserVisibleContent(response.Content, response.Reasoning, showReasoning)
+
+	return response, nil
 }
 
 func (p *HTTPProvider) parseResponse(body []byte) (*LLMResponse, error) {
 	var apiResponse struct {
 		Choices []struct {
 			Message struct {
-				Content   string `json:"content"`
+				Content          string `json:"content"`
+				ReasoningContent string `json:"reasoning_content"`
+				ReasoningDetails []struct {
+					Text string `json:"text"`
+				} `json:"reasoning_details"`
 				ToolCalls []struct {
 					ID       string `json:"id"`
 					Type     string `json:"type"`
@@ -296,11 +290,19 @@ func (p *HTTPProvider) parseResponse(body []byte) (*LLMResponse, error) {
 			} `json:"message"`
 			FinishReason string `json:"finish_reason"`
 		} `json:"choices"`
-		Usage *UsageInfo `json:"usage"`
+		Usage    *UsageInfo `json:"usage"`
+		BaseResp struct {
+			StatusCode int    `json:"status_code"`
+			StatusMsg  string `json:"status_msg"`
+		} `json:"base_resp"`
 	}
 
 	if err := json.Unmarshal(body, &apiResponse); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal response: %w", err)
+	}
+
+	if apiResponse.BaseResp.StatusCode != 0 {
+		return nil, fmt.Errorf("provider API error (%d): %s", apiResponse.BaseResp.StatusCode, apiResponse.BaseResp.StatusMsg)
 	}
 
 	if len(apiResponse.Choices) == 0 {
@@ -312,8 +314,18 @@ func (p *HTTPProvider) parseResponse(body []byte) (*LLMResponse, error) {
 
 	choice := apiResponse.Choices[0]
 	content := choice.Message.Content
-	if isMiniMaxEndpoint(p.apiBase) && strings.Contains(content, "<think>") {
-		content = stripThinkBlocks(content)
+	reasoning := strings.TrimSpace(choice.Message.ReasoningContent)
+	if len(choice.Message.ReasoningDetails) > 0 {
+		reasoningParts := make([]string, 0, len(choice.Message.ReasoningDetails))
+		for _, part := range choice.Message.ReasoningDetails {
+			partText := strings.TrimSpace(part.Text)
+			if partText != "" {
+				reasoningParts = append(reasoningParts, partText)
+			}
+		}
+		if len(reasoningParts) > 0 {
+			reasoning = strings.Join(reasoningParts, "\n\n")
+		}
 	}
 
 	toolCalls := make([]ToolCall, 0, len(choice.Message.ToolCalls))
@@ -351,6 +363,7 @@ func (p *HTTPProvider) parseResponse(body []byte) (*LLMResponse, error) {
 		ToolCalls:    toolCalls,
 		FinishReason: choice.FinishReason,
 		Usage:        apiResponse.Usage,
+		Reasoning:    reasoning,
 	}, nil
 }
 

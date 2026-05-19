@@ -17,6 +17,8 @@ Both naming styles work. The short name (`minimax-m2.7`) is recommended for simp
 
 Text and chat work reliably with minimax-m2.7. Standard conversation, reasoning tasks, and general assistant use cases are supported.
 
+LuckyClaw requests MiniMax with `reasoning_split: true` and keeps reasoning hidden by default. To show reasoning to end users, set `agents.defaults.show_reasoning` to `true`.
+
 ## Image Understanding
 
 Image understanding with minimax-m2.7 is **currently unreliable** in our observed setup. When users send images (via WhatsApp, Telegram, or Discord), the model often returns empty content or reasoning that indicates no image was seen.
@@ -48,7 +50,8 @@ LuckyClaw does not need to know which account type you have — it simply sends 
   "agents": {
     "defaults": {
       "provider": "minimax",
-      "model": "minimax-m2.7"
+      "model": "minimax-m2.7",
+      "show_reasoning": false
     }
   },
   "providers": {
@@ -67,7 +70,8 @@ LuckyClaw does not need to know which account type you have — it simply sends 
   "agents": {
     "defaults": {
       "provider": "minimax",
-      "model": "minimax-m2.7"
+      "model": "minimax-m2.7",
+      "show_reasoning": false
     }
   },
   "providers": {

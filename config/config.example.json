@@ -8,7 +8,8 @@
       "max_tokens": 16384,
       "allow_unsafe_max_tokens": false,
       "temperature": 0.6,
-      "max_tool_iterations": 25
+      "max_tool_iterations": 25,
+      "show_reasoning": false
     }
   },
   "channels": {

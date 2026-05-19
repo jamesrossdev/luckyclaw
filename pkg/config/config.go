@@ -70,6 +70,7 @@ type AgentDefaults struct {
 	AllowUnsafeMaxTokens bool    `json:"allow_unsafe_max_tokens" env:"LUCKYCLAW_AGENTS_DEFAULTS_ALLOW_UNSAFE_MAX_TOKENS"`
 	Temperature          float64 `json:"temperature" env:"LUCKYCLAW_AGENTS_DEFAULTS_TEMPERATURE"`
 	MaxToolIterations    int     `json:"max_tool_iterations" env:"LUCKYCLAW_AGENTS_DEFAULTS_MAX_TOOL_ITERATIONS"`
+	ShowReasoning        bool    `json:"show_reasoning" env:"LUCKYCLAW_AGENTS_DEFAULTS_SHOW_REASONING"`
 }
 
 type ChannelsConfig struct {
@@ -239,6 +240,7 @@ func DefaultConfig() *Config {
 				AllowUnsafeMaxTokens: false,
 				Temperature:          0.6,
 				MaxToolIterations:    25,
+				ShowReasoning:        false,
 			},
 		},
 		Channels: ChannelsConfig{

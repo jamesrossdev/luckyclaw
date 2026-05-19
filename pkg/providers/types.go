@@ -20,6 +20,7 @@ type LLMResponse struct {
 	ToolCalls    []ToolCall `json:"tool_calls,omitempty"`
 	FinishReason string     `json:"finish_reason"`
 	Usage        *UsageInfo `json:"usage,omitempty"`
+	Reasoning    string     `json:"reasoning,omitempty"`
 }
 
 type UsageInfo struct {

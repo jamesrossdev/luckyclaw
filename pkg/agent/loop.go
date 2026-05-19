@@ -633,6 +633,7 @@ func (al *AgentLoop) runLLMIteration(ctx context.Context, messages []providers.M
 				"tools_count":       len(providerToolDefs),
 				"max_tokens":        al.maxTokens,
 				"temperature":       0.6,
+				"show_reasoning":    al.config.Agents.Defaults.ShowReasoning,
 				"system_prompt_len": len(messages[0].Content),
 			})
 
@@ -651,8 +652,9 @@ func (al *AgentLoop) runLLMIteration(ctx context.Context, messages []providers.M
 		maxRetries := 2
 		for retry := 0; retry <= maxRetries; retry++ {
 			response, err = al.provider.Chat(ctx, messages, providerToolDefs, al.model, map[string]interface{}{
-				"max_tokens":  al.maxTokens,
-				"temperature": 0.6,
+				"max_tokens":     al.maxTokens,
+				"temperature":    0.6,
+				"show_reasoning": al.config.Agents.Defaults.ShowReasoning,
 			})
 
 			if err == nil {
@@ -744,6 +746,10 @@ func (al *AgentLoop) runLLMIteration(ctx context.Context, messages []providers.M
 					"error":     err.Error(),
 				})
 			return "", iteration, fmt.Errorf("LLM call failed after retries: %w", err)
+		}
+
+		if !al.config.Agents.Defaults.ShowReasoning {
+			response.Content = providers.StripThinkArtifacts(response.Content)
 		}
 
 		// Check if no tool calls - we're done

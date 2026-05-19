@@ -49,7 +49,6 @@ func (p *MiniMaxProvider) Chat(ctx context.Context, messages []Message, tools []
 		return nil, fmt.Errorf("MiniMax API key not configured")
 	}
 
-	// Normalize model name: support both "minimax-m2.7" and "minimax-coding-plan/MiniMax-M2.7"
 	normalizedModel := p.normalizeModel(model)
 
 	var formattedMessages []interface{}
@@ -147,9 +146,10 @@ func (p *MiniMaxProvider) Chat(ctx context.Context, messages []Message, tools []
 	}
 
 	requestBody := map[string]interface{}{
-		"model":    normalizedModel,
-		"messages": formattedMessages,
-		"stream":   false,
+		"model":           normalizedModel,
+		"messages":        formattedMessages,
+		"stream":          false,
+		"reasoning_split": true,
 	}
 
 	if len(tools) > 0 {
@@ -203,14 +203,26 @@ func (p *MiniMaxProvider) Chat(ctx context.Context, messages []Message, tools []
 		return nil, fmt.Errorf("MiniMax API request failed:\n  Status: %d\n  Body:   %s", resp.StatusCode, string(body))
 	}
 
-	return p.parseResponse(body)
+	response, err := p.parseResponse(body)
+	if err != nil {
+		return nil, err
+	}
+
+	showReasoning, _ := options["show_reasoning"].(bool)
+	response.Content = BuildUserVisibleContent(response.Content, response.Reasoning, showReasoning)
+
+	return response, nil
 }
 
 func (p *MiniMaxProvider) parseResponse(body []byte) (*LLMResponse, error) {
 	var apiResponse struct {
 		Choices []struct {
 			Message struct {
-				Content   string `json:"content"`
+				Content          string `json:"content"`
+				ReasoningContent string `json:"reasoning_content"`
+				ReasoningDetails []struct {
+					Text string `json:"text"`
+				} `json:"reasoning_details"`
 				ToolCalls []struct {
 					ID       string `json:"id"`
 					Type     string `json:"type"`
@@ -222,11 +234,19 @@ func (p *MiniMaxProvider) parseResponse(body []byte) (*LLMResponse, error) {
 			} `json:"message"`
 			FinishReason string `json:"finish_reason"`
 		} `json:"choices"`
-		Usage *UsageInfo `json:"usage"`
+		Usage    *UsageInfo `json:"usage"`
+		BaseResp struct {
+			StatusCode int    `json:"status_code"`
+			StatusMsg  string `json:"status_msg"`
+		} `json:"base_resp"`
 	}
 
 	if err := json.Unmarshal(body, &apiResponse); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal MiniMax response: %w", err)
+	}
+
+	if apiResponse.BaseResp.StatusCode != 0 {
+		return nil, fmt.Errorf("MiniMax API error (%d): %s", apiResponse.BaseResp.StatusCode, apiResponse.BaseResp.StatusMsg)
 	}
 
 	if len(apiResponse.Choices) == 0 {
@@ -238,8 +258,18 @@ func (p *MiniMaxProvider) parseResponse(body []byte) (*LLMResponse, error) {
 
 	choice := apiResponse.Choices[0]
 	content := choice.Message.Content
-	if strings.Contains(content, "<think>") {
-		content = stripThinkBlocks(content)
+	reasoning := strings.TrimSpace(choice.Message.ReasoningContent)
+	if len(choice.Message.ReasoningDetails) > 0 {
+		reasoningParts := make([]string, 0, len(choice.Message.ReasoningDetails))
+		for _, part := range choice.Message.ReasoningDetails {
+			partText := strings.TrimSpace(part.Text)
+			if partText != "" {
+				reasoningParts = append(reasoningParts, partText)
+			}
+		}
+		if len(reasoningParts) > 0 {
+			reasoning = strings.Join(reasoningParts, "\n\n")
+		}
 	}
 
 	toolCalls := make([]ToolCall, 0, len(choice.Message.ToolCalls))
@@ -282,15 +312,10 @@ func (p *MiniMaxProvider) parseResponse(body []byte) (*LLMResponse, error) {
 		ToolCalls:    toolCalls,
 		FinishReason: choice.FinishReason,
 		Usage:        apiResponse.Usage,
+		Reasoning:    reasoning,
 	}, nil
 }
 
-// normalizeModel handles both naming styles:
-// - "minimax-m2.7" (user-friendly shorthand)
-// - "minimax-coding-plan/MiniMax-M2.7" (provider/model path from other clients)
-//
-// MiniMax native API expects model IDs like "MiniMax-M2.7", so provider prefixes
-// are stripped before sending requests.
 func (p *MiniMaxProvider) normalizeModel(model string) string {
 	trimmed := strings.TrimSpace(model)
 	if trimmed == "" {
@@ -299,7 +324,6 @@ func (p *MiniMaxProvider) normalizeModel(model string) string {
 
 	lower := strings.ToLower(trimmed)
 
-	// Accept provider/model style and keep only the model part.
 	if strings.HasPrefix(lower, "minimax-coding-plan/") {
 		if idx := strings.Index(trimmed, "/"); idx >= 0 && idx+1 < len(trimmed) {
 			trimmed = trimmed[idx+1:]
@@ -307,7 +331,6 @@ func (p *MiniMaxProvider) normalizeModel(model string) string {
 		}
 	}
 
-	// Handle common models explicitly with canonical MiniMax casing.
 	switch lower {
 	case "minimax-m2.7":
 		return "MiniMax-M2.7"
@@ -323,7 +346,6 @@ func (p *MiniMaxProvider) normalizeModel(model string) string {
 		return "MiniMax-" + suffix
 	}
 
-	// For any other format, return as-is
 	return trimmed
 }
 
