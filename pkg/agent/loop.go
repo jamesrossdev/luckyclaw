@@ -663,6 +663,20 @@ func (al *AgentLoop) runLLMIteration(ctx context.Context, messages []providers.M
 
 			errMsg := strings.ToLower(err.Error())
 
+			isVisionUnsupported := strings.Contains(errMsg, "unknown variant") &&
+				strings.Contains(errMsg, "image_url")
+
+			if isVisionUnsupported && retry < maxRetries {
+				logger.WarnCF("agent", "Vision/images not supported by model, retrying without media", map[string]interface{}{
+					"error": err.Error(),
+					"retry": retry,
+				})
+				for i := range messages {
+					messages[i].MediaPaths = nil
+				}
+				continue
+			}
+
 			isPaymentError := strings.Contains(errMsg, "402") ||
 				strings.Contains(errMsg, "401") ||
 				strings.Contains(errMsg, "403") ||
@@ -777,8 +791,9 @@ func (al *AgentLoop) runLLMIteration(ctx context.Context, messages []providers.M
 
 		// Build assistant message with tool calls
 		assistantMsg := providers.Message{
-			Role:    "assistant",
-			Content: response.Content,
+			Role:             "assistant",
+			Content:          response.Content,
+			ReasoningContent: response.Reasoning,
 		}
 		for _, tc := range response.ToolCalls {
 			argumentsJSON, _ := json.Marshal(tc.Arguments)

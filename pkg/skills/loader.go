@@ -248,6 +248,46 @@ func (sl *SkillsLoader) BuildSkillsSummary() string {
 	return strings.Join(lines, "\n")
 }
 
+func (sl *SkillsLoader) BuildSkillsSummaryForChannel(channel string) string {
+	allSkills := sl.ListSkills()
+	if len(allSkills) == 0 {
+		return ""
+	}
+
+	filtered := make([]SkillInfo, 0, len(allSkills))
+	for _, s := range allSkills {
+		if channel != "discord" && s.Name == "discord-mod" {
+			continue
+		}
+		if channel != "whatsapp" && s.Name == "whatsapp" {
+			continue
+		}
+		filtered = append(filtered, s)
+	}
+
+	if len(filtered) == 0 {
+		return ""
+	}
+
+	var lines []string
+	lines = append(lines, "<skills>")
+	for _, s := range filtered {
+		escapedName := escapeXML(s.Name)
+		escapedDesc := escapeXML(s.Description)
+		escapedPath := escapeXML(s.Path)
+
+		lines = append(lines, fmt.Sprintf("  <skill>"))
+		lines = append(lines, fmt.Sprintf("    <name>%s</name>", escapedName))
+		lines = append(lines, fmt.Sprintf("    <description>%s</description>", escapedDesc))
+		lines = append(lines, fmt.Sprintf("    <location>%s</location>", escapedPath))
+		lines = append(lines, fmt.Sprintf("    <source>%s</source>", s.Source))
+		lines = append(lines, "  </skill>")
+	}
+	lines = append(lines, "</skills>")
+
+	return strings.Join(lines, "\n")
+}
+
 func (sl *SkillsLoader) getSkillMetadata(skillPath string) *SkillMetadata {
 	content, err := os.ReadFile(skillPath)
 	if err != nil {

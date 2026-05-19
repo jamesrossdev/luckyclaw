@@ -71,6 +71,7 @@ type AgentDefaults struct {
 	Temperature          float64 `json:"temperature" env:"LUCKYCLAW_AGENTS_DEFAULTS_TEMPERATURE"`
 	MaxToolIterations    int     `json:"max_tool_iterations" env:"LUCKYCLAW_AGENTS_DEFAULTS_MAX_TOOL_ITERATIONS"`
 	ShowReasoning        bool    `json:"show_reasoning" env:"LUCKYCLAW_AGENTS_DEFAULTS_SHOW_REASONING"`
+	ChannelSkillFilter   bool    `json:"channel_skill_filter" env:"LUCKYCLAW_AGENTS_DEFAULTS_CHANNEL_SKILL_FILTER"`
 }
 
 type ChannelsConfig struct {
@@ -87,12 +88,13 @@ type ChannelsConfig struct {
 }
 
 type WhatsAppConfig struct {
-	Enabled      bool                `json:"enabled" env:"LUCKYCLAW_CHANNELS_WHATSAPP_ENABLED"`
-	BusinessMode bool                `json:"business_mode" env:"LUCKYCLAW_CHANNELS_WHATSAPP_BUSINESS_MODE"`
-	SessionPath  string              `json:"session_path" env:"LUCKYCLAW_CHANNELS_WHATSAPP_SESSION_PATH"`
-	PairPhone    string              `json:"pair_phone" env:"LUCKYCLAW_CHANNELS_WHATSAPP_PAIR_PHONE"`
-	BridgeURL    string              `json:"bridge_url" env:"LUCKYCLAW_CHANNELS_WHATSAPP_BRIDGE_URL"`
-	AllowFrom    FlexibleStringSlice `json:"allow_from" env:"LUCKYCLAW_CHANNELS_WHATSAPP_ALLOW_FROM"`
+	Enabled             bool                `json:"enabled" env:"LUCKYCLAW_CHANNELS_WHATSAPP_ENABLED"`
+	BusinessMode        bool                `json:"business_mode" env:"LUCKYCLAW_CHANNELS_WHATSAPP_BUSINESS_MODE"`
+	SessionPath         string              `json:"session_path" env:"LUCKYCLAW_CHANNELS_WHATSAPP_SESSION_PATH"`
+	PairPhone           string              `json:"pair_phone" env:"LUCKYCLAW_CHANNELS_WHATSAPP_PAIR_PHONE"`
+	BridgeURL           string              `json:"bridge_url" env:"LUCKYCLAW_CHANNELS_WHATSAPP_BRIDGE_URL"`
+	AllowFrom           FlexibleStringSlice `json:"allow_from" env:"LUCKYCLAW_CHANNELS_WHATSAPP_ALLOW_FROM"`
+	IgnoreStatusUpdates bool                `json:"ignore_status_updates" env:"LUCKYCLAW_CHANNELS_WHATSAPP_IGNORE_STATUS_UPDATES"`
 }
 
 type TelegramConfig struct {
@@ -241,16 +243,18 @@ func DefaultConfig() *Config {
 				Temperature:          0.6,
 				MaxToolIterations:    25,
 				ShowReasoning:        false,
+				ChannelSkillFilter:   false,
 			},
 		},
 		Channels: ChannelsConfig{
 			WhatsApp: WhatsAppConfig{
-				Enabled:      false,
-				BusinessMode: false,
-				SessionPath:  "~/.luckyclaw/whatsapp.db",
-				PairPhone:    "",
-				BridgeURL:    "ws://localhost:3001",
-				AllowFrom:    FlexibleStringSlice{},
+				Enabled:             false,
+				BusinessMode:        false,
+				SessionPath:         "~/.luckyclaw/whatsapp.db",
+				PairPhone:           "",
+				BridgeURL:           "ws://localhost:3001",
+				AllowFrom:           FlexibleStringSlice{},
+				IgnoreStatusUpdates: true,
 			},
 			Telegram: TelegramConfig{
 				Enabled:   false,

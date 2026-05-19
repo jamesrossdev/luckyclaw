@@ -535,6 +535,15 @@ func (c *WhatsAppChannel) handleIncoming(evt *events.Message) {
 	stanzaID := evt.Info.ID
 	senderUser := evt.Info.Sender.User
 	chatID := evt.Info.Chat.String()
+
+	if c.config.IgnoreStatusUpdates && strings.HasPrefix(chatID, "status") {
+		logger.DebugCF("whatsapp", "Ignoring status update message", map[string]any{
+			"chat_id":     chatID,
+			"sender_user": senderUser,
+		})
+		return
+	}
+
 	if isDup, source, age := c.isDuplicateStanza(chatID, evt.Info.Sender.String(), stanzaID, evt.Info.IsFromMe); isDup {
 		logger.InfoCF("whatsapp", "duplicate inbound dropped", map[string]any{
 			"stanza_id":  stanzaID,

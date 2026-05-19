@@ -56,6 +56,11 @@ func isMiniMaxEndpoint(apiBase string) bool {
 	return strings.Contains(base, "api.minimax.io") || strings.Contains(base, "api.minimaxi.com")
 }
 
+func isDeepSeekEndpoint(apiBase string) bool {
+	base := strings.ToLower(apiBase)
+	return strings.Contains(base, "api.deepseek.com") || strings.Contains(base, "deepseek.com")
+}
+
 func (p *HTTPProvider) Chat(ctx context.Context, messages []Message, tools []ToolDefinition, model string, options map[string]interface{}) (*LLMResponse, error) {
 	if p.apiBase == "" {
 		return nil, fmt.Errorf("API base not configured")
@@ -74,13 +79,25 @@ func (p *HTTPProvider) Chat(ctx context.Context, messages []Message, tools []Too
 		}
 	}
 
+	// Prepare messages for re-request after context errors: strip media to
+	// avoid providers that reject image_url at the JSON schema level (DeepSeek).
+	stripMedia := false
+	if v, ok := options["strip_media"].(bool); ok {
+		stripMedia = v
+	}
+
 	var formattedMessages []interface{}
 	for _, msg := range messages {
 		formattedMsg := map[string]interface{}{
 			"role": msg.Role,
 		}
 
-		if len(msg.MediaPaths) > 0 {
+		mediaPaths := msg.MediaPaths
+		if stripMedia {
+			mediaPaths = nil
+		}
+
+		if len(mediaPaths) > 0 {
 			var contentArray []interface{}
 			if msg.Content != "" {
 				contentArray = append(contentArray, map[string]interface{}{
@@ -178,6 +195,12 @@ func (p *HTTPProvider) Chat(ctx context.Context, messages []Message, tools []Too
 		}
 		if msg.ToolCallID != "" {
 			formattedMsg["tool_call_id"] = msg.ToolCallID
+		}
+
+		// DeepSeek requires reasoning_content to be replayed in subsequent
+		// requests when the assistant turn participates in a tool call round.
+		if isDeepSeekEndpoint(p.apiBase) && msg.Role == "assistant" && msg.ReasoningContent != "" {
+			formattedMsg["reasoning_content"] = msg.ReasoningContent
 		}
 
 		formattedMessages = append(formattedMessages, formattedMsg)
@@ -492,10 +515,7 @@ func CreateProvider(cfg *config.Config) (LLMProvider, error) {
 				apiKey = cfg.Providers.DeepSeek.APIKey
 				apiBase = cfg.Providers.DeepSeek.APIBase
 				if apiBase == "" {
-					apiBase = "https://api.deepseek.com/v1"
-				}
-				if model != "deepseek-chat" && model != "deepseek-reasoner" {
-					model = "deepseek-chat"
+					apiBase = "https://api.deepseek.com"
 				}
 			}
 		case "github_copilot", "copilot":
