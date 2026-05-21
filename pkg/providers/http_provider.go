@@ -546,7 +546,8 @@ func CreateProvider(cfg *config.Config) (LLMProvider, error) {
 		}
 	}
 
-	if apiKey == "" && !strings.HasPrefix(model, "bedrock/") {
+	isLocalEndpoint := strings.HasPrefix(apiBase, "http://localhost") || strings.HasPrefix(apiBase, "http://127.0.0.1")
+	if apiKey == "" && !isLocalEndpoint && !strings.HasPrefix(model, "bedrock/") {
 		return nil, fmt.Errorf("no API key configured for provider (model: %s)", model)
 	}
 
