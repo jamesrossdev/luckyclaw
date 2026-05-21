@@ -236,7 +236,7 @@ func DefaultConfig() *Config {
 				Workspace:            "~/.luckyclaw/workspace",
 				RestrictToWorkspace:  true,
 				Provider:             "openrouter",
-				Model:                "stepfun/step-3.5-flash:free",
+				Model:                "nvidia/nemotron-3-super-120b-a12b:free",
 				MaxTokens:            16384,
 				ContextWindow:        256000,
 				AllowUnsafeMaxTokens: false,

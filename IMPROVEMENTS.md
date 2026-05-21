@@ -59,9 +59,9 @@ Items listed here are planned enhancements that are not yet scheduled for implem
 
 ## Skill System
 
-### Channel-Based Skill Filtering
+### Channel-Based Skill Filtering via Frontmatter
 **Priority**: Medium
-**Description**: Filter skills by message origin channel to prevent cross-channel skill leakage. Currently, all skills are visible to the LLM regardless of which channel the message came from, causing the LLM to read Discord-specific moderation content when responding to WhatsApp users.
+**Description**: Filter skills by message origin channel to prevent cross-channel skill leakage. A basic `channel_skill_filter` config toggle already exists (hides `discord-mod` outside Discord, `whatsapp` outside WhatsApp), but a more granular per-skill `channels:` frontmatter approach would allow skill authors to declare which channels their skill applies to.
 
 **Implementation**:
 
@@ -75,37 +75,13 @@ Items listed here are planned enhancements that are not yet scheduled for implem
    ```
    - `channels: [discord]` → only visible on Discord
    - `channels: [whatsapp]` → only visible on WhatsApp
-   - No `channels:` field or `channels: [all]` → visible on all channels
+   - No `channels:` field → visible on all channels
 
-2. **Modify `SkillMetadata` struct** in `pkg/skills/loader.go`:
-   ```go
-   type SkillMetadata struct {
-       Name        string   `json:"name"`
-       Description string   `json:"description"`
-       Channels    []string `json:"channels"` // Optional: channels this skill applies to
-   }
-   ```
+2. **Modify `SkillMetadata` struct** in `pkg/skills/loader.go` to parse `channels:`
+3. **Update `BuildSkillsSummaryForChannel`** to use frontmatter over hardcoded channel filtering
+4. **Update skill SKILL.md files** to include `channels:` frontmatter
 
-3. **Modify `BuildSkillsSummary()`** in `pkg/skills/loader.go`:
-   - Accept `channel string` parameter
-   - Filter skills: `skill.Channels == nil || contains(skill.Channels, channel) || contains(skill.Channels, "all")`
-
-4. **Update `BuildSystemPrompt()`** in `pkg/agent/context.go`:
-   - Pass `channel` parameter to `BuildSkillsSummary(channel)`
-
-5. **Skill channel assignments** (initial):
-   - `discord-mod/SKILL.md` → `channels: [discord]`
-   - `whatsapp/SKILL.md` → `channels: [whatsapp]`
-   - `weather/SKILL.md` → omitempty (all channels)
-   - `summarize/SKILL.md` → omitempty (all channels)
-   - `hardware/SKILL.md` → omitempty (all channels)
-
-**Files affected**:
-- `workspace/skills/*/SKILL.md` — add `channels:` frontmatter
-- `pkg/skills/loader.go` — filter by channel
-- `pkg/agent/context.go` — pass channel to skills loader
-
-**Benefit**: Prevents LLM from reading Discord moderation rules when responding to WhatsApp users, and vice versa. Reduces irrelevant context in system prompt, saves tokens.
+**Current State**: A basic `channel_skill_filter` config toggle exists in `pkg/agent/context.go` that hardcodes the filtering rules. The frontmatter approach would be more flexible and skill-author-controlled.
 
 **Blocked by**: Nothing. Can be implemented independently.
 
@@ -204,22 +180,6 @@ PicoClaw adds:
 **Note**: Being evaluated for v0.2.5 scope.
 
 **Blocked by**: Nothing. Can be implemented independently.
-
-## Onboarding
-
-### Onboarding Provider Expansion (Post v0.2.x)
-**Priority**: Low
-**Description**: Extend onboarding to support provider selection beyond OpenRouter (e.g., MiniMax, Groq, Zhipu) as an optional advanced mode, while keeping the current simple OpenRouter-first default for normal users.
-
-**Implementation approach**:
-- Add an optional "Advanced setup" mode in `luckyclaw onboard` that offers provider picker (dropdown or numbered menu)
-- Simple default remains OpenRouter-only (current behavior)
-- Advanced mode allows selecting a different provider and entering provider-specific credentials
-- Keep onboarding flow short for both paths
-
-**Benefit**: Makes it easier for users who want to use non-OpenRouter providers without manually editing config.json.
-
-**Blocked by**: None. Can be implemented independently.
 
 ## Future Skills (Pro/Max Only)
 

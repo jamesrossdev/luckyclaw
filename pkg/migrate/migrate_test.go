@@ -293,8 +293,8 @@ func TestConvertConfig(t *testing.T) {
 		if len(warnings) != 0 {
 			t.Errorf("expected no warnings, got %v", warnings)
 		}
-		if cfg.Agents.Defaults.Model != "stepfun/step-3.5-flash:free" {
-			t.Errorf("default model should be stepfun/step-3.5-flash:free, got %q", cfg.Agents.Defaults.Model)
+		if cfg.Agents.Defaults.Model != "nvidia/nemotron-3-super-120b-a12b:free" {
+			t.Errorf("default model should be nvidia/nemotron-3-super-120b-a12b:free, got %q", cfg.Agents.Defaults.Model)
 		}
 	})
 }

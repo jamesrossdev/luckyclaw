@@ -4,7 +4,7 @@
       "workspace": "~/.luckyclaw/workspace",
       "restrict_to_workspace": true,
       "provider": "openrouter",
-      "model": "stepfun/step-3.5-flash:free",
+      "model": "nvidia/nemotron-3-super-120b-a12b:free",
       "max_tokens": 16384,
       "allow_unsafe_max_tokens": false,
       "temperature": 0.6,

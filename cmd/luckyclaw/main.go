@@ -307,7 +307,7 @@ func onboardingProviderOptions() []onboardingProviderOption {
 		{ID: "nvidia", Display: "NVIDIA", DefaultModel: "nvidia/llama-3.3-nemotron-super-49b-v1", DefaultAPIBase: "https://integrate.api.nvidia.com/v1", KeyURL: "https://build.nvidia.com"},
 		{ID: "ollama", Display: "Ollama", DefaultModel: "llama3.2", DefaultAPIBase: "http://localhost:11434/v1", KeyURL: "https://ollama.com"},
 		{ID: "openai", Display: "OpenAI", DefaultModel: "gpt-5.4-mini", DefaultAPIBase: "https://api.openai.com/v1", KeyURL: "https://platform.openai.com"},
-		{ID: "openrouter", Display: "OpenRouter (recommended)", DefaultModel: "stepfun/step-3.5-flash:free", DefaultAPIBase: "https://openrouter.ai/api/v1", KeyURL: "https://openrouter.ai/keys"},
+		{ID: "openrouter", Display: "OpenRouter (recommended)", DefaultModel: "nvidia/nemotron-3-super-120b-a12b:free", DefaultAPIBase: "https://openrouter.ai/api/v1", KeyURL: "https://openrouter.ai/keys"},
 		{ID: "shengsuanyun", Display: "ShengSuanYun", DefaultModel: "deepseek-chat", DefaultAPIBase: "https://router.shengsuanyun.com/api/v1", KeyURL: "https://router.shengsuanyun.com"},
 		{ID: "vllm", Display: "vLLM", DefaultModel: "custom-model", DefaultAPIBase: "http://localhost:8000/v1", KeyURL: ""},
 		{ID: "zhipu", Display: "Zhipu", DefaultModel: "glm-5.1", DefaultAPIBase: "https://open.bigmodel.cn/api/paas/v4", KeyURL: "https://open.bigmodel.cn"},
@@ -669,15 +669,13 @@ func onboard(wipeWorkspace bool) {
 	hasExistingConfig := false
 	if _, err := os.Stat(configPath); err == nil {
 		hasExistingConfig = true
-		if !wipeWorkspace {
-			existingCfg, loadErr := config.LoadConfig(configPath)
-			if loadErr != nil {
-				fmt.Printf("  Error loading existing config: %v\n", loadErr)
-				fmt.Println("  Fix or reset your config, then run onboard again.")
-				os.Exit(1)
-			}
-			cfg = existingCfg
+		existingCfg, loadErr := config.LoadConfig(configPath)
+		if loadErr != nil {
+			fmt.Printf("  Error loading existing config: %v\n", loadErr)
+			fmt.Println("  Fix or reset your config, then run onboard again.")
+			os.Exit(1)
 		}
+		cfg = existingCfg
 	}
 
 	// Show hardware info (needs config for workspace path)
@@ -743,9 +741,6 @@ func onboard(wipeWorkspace bool) {
 	}
 
 	if freshOnboard {
-		cfg = config.DefaultConfig()
-		workspace = filepath.Clean(cfg.WorkspacePath())
-		hasExistingConfig = false
 		if err := validateWorkspaceWipePath(workspace); err != nil {
 			fmt.Printf("  Refusing to wipe unsafe workspace path: %s\n", workspace)
 			fmt.Printf("  Reason: %v\n", err)
@@ -772,6 +767,7 @@ func onboard(wipeWorkspace bool) {
 
 	if hasExistingConfig {
 		fmt.Println("  Existing config detected. Blank inputs keep current values.")
+		fmt.Println("  💡 To completely delete your config (API keys, models), run luckyclaw config-reset first.")
 		fmt.Println()
 	}
 
