@@ -79,25 +79,13 @@ func (p *HTTPProvider) Chat(ctx context.Context, messages []Message, tools []Too
 		}
 	}
 
-	// Prepare messages for re-request after context errors: strip media to
-	// avoid providers that reject image_url at the JSON schema level (DeepSeek).
-	stripMedia := false
-	if v, ok := options["strip_media"].(bool); ok {
-		stripMedia = v
-	}
-
 	var formattedMessages []interface{}
 	for _, msg := range messages {
 		formattedMsg := map[string]interface{}{
 			"role": msg.Role,
 		}
 
-		mediaPaths := msg.MediaPaths
-		if stripMedia {
-			mediaPaths = nil
-		}
-
-		if len(mediaPaths) > 0 {
+		if len(msg.MediaPaths) > 0 {
 			var contentArray []interface{}
 			if msg.Content != "" {
 				contentArray = append(contentArray, map[string]interface{}{

@@ -389,7 +389,6 @@ var providerAliasMap = map[string]string{
 
 func fetchModelMetadataOpenRouter(modelID, providerID string) (contextWindow, maxOutput int, hasReasoning, hasVision bool) {
 	const defaultCtx = 256000
-	contextWindow = defaultCtx
 	maxOutput = 16384
 
 	req, err := http.NewRequest("GET", "https://openrouter.ai/api/v1/models", nil)
@@ -440,6 +439,8 @@ func fetchModelMetadataOpenRouter(modelID, providerID string) (contextWindow, ma
 			if strings.ToLower(m.ID) == candidate {
 				if m.ContextLength > 0 {
 					contextWindow = m.ContextLength
+				} else {
+					contextWindow = defaultCtx
 				}
 				if m.TopProvider.MaxCompletionTokens > 0 {
 					maxOutput = m.TopProvider.MaxCompletionTokens
