@@ -763,13 +763,9 @@ func (al *AgentLoop) runLLMIteration(ctx context.Context, messages []providers.M
 			return "", iteration, fmt.Errorf("LLM call failed after retries: %w", err)
 		}
 
-		if !al.config.Agents.Defaults.ShowReasoning {
-			response.Content = providers.StripThinkArtifacts(response.Content)
-		}
-
 		// Check if no tool calls - we're done
 		if len(response.ToolCalls) == 0 {
-			finalContent = response.Content
+			finalContent = providers.BuildUserVisibleContent(response.Content, response.Reasoning, al.config.Agents.Defaults.ShowReasoning)
 			logger.InfoCF("agent", "LLM response without tool calls (direct answer)",
 				map[string]interface{}{
 					"iteration":     iteration,
