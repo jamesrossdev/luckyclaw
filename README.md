@@ -174,7 +174,7 @@ The wizard walks you through:
 5. **Thinking Mode** — Optionally enable thinking/reasoning mode (if supported by the model)
 6. **Reasoning visibility** — Choose whether reasoning output is shown to users (`show_reasoning`)
 7. **Timezone** — Explicitly enter your IANA Zone classification via the [Wikipedia TZ Database List](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones#List)
-8. **Messaging** — Optionally set up Telegram and/or Discord
+8. **Messaging** — Optionally set up Telegram, Discord, and/or WhatsApp
 9. **Start gateway** — Optionally start the AI gateway in the background
 
 ### 4. Chat!
@@ -317,6 +317,7 @@ Config: `/oem/.luckyclaw/config.json`
 | Temperature        | `0.6`                         |
 | Max Tool Iterations| `25`                          |
 | Show Reasoning     | `false`                        |
+| Enable Thinking    | `false`                        |
 | Channel Skill Filter | `false` (show all skills to all channels) |
 | WhatsApp: Ignore Status Updates | `true` (skip status@broadcast) |
 

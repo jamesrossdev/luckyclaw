@@ -56,7 +56,7 @@ import (
 var embeddedFiles embed.FS
 
 var (
-	version   = "v0.2.4"
+	version   = "v0.2.5"
 	gitCommit string
 	buildTime string
 	goVersion string
@@ -782,7 +782,14 @@ func onboard(wipeWorkspace bool) {
 	fmt.Println()
 	fmt.Println("  Step 1: Provider")
 	fmt.Println("  ────────────────")
-	selectedIdx := promptNumeric("Select provider", providerLabels, 0)
+	defaultIdx := 0
+	for i, p := range providerOpts {
+		if p.ID == cfg.Agents.Defaults.Provider {
+			defaultIdx = i
+			break
+		}
+	}
+	selectedIdx := promptNumeric("Select provider", providerLabels, defaultIdx)
 	if selectedIdx < 0 {
 		selectedIdx = 0
 	}
@@ -894,7 +901,8 @@ func onboard(wipeWorkspace bool) {
 		fmt.Println()
 		fmt.Println("  Step 6: Thinking Mode")
 		fmt.Println("  ─────────────────────")
-		enableThinking := promptYN("  Enable thinking mode? (recommended: off for basic chat)")
+		enableThinking := promptYN("  Enable thinking mode? (confirmed: DeepSeek, MiniMax. y/N): ")
+		cfg.Agents.Defaults.EnableThinking = enableThinking
 		if enableThinking {
 			fmt.Println("  Thinking mode: enabled")
 		} else {

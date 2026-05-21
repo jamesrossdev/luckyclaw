@@ -198,8 +198,15 @@ func (p *HTTPProvider) Chat(ctx context.Context, messages []Message, tools []Too
 		"model":    model,
 		"messages": formattedMessages,
 	}
-	if isMiniMax {
+
+	enableThinking, _ := options["enable_thinking"].(bool)
+
+	if isMiniMax && enableThinking {
 		requestBody["reasoning_split"] = true
+	}
+
+	if isDeepSeekEndpoint(p.apiBase) && enableThinking {
+		requestBody["thinking"] = map[string]string{"type": "enabled"}
 	}
 
 	if len(tools) > 0 {

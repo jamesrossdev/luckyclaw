@@ -652,9 +652,10 @@ func (al *AgentLoop) runLLMIteration(ctx context.Context, messages []providers.M
 		maxRetries := 2
 		for retry := 0; retry <= maxRetries; retry++ {
 			response, err = al.provider.Chat(ctx, messages, providerToolDefs, al.model, map[string]interface{}{
-				"max_tokens":     al.maxTokens,
-				"temperature":    0.6,
-				"show_reasoning": al.config.Agents.Defaults.ShowReasoning,
+				"max_tokens":      al.maxTokens,
+				"temperature":     0.6,
+				"show_reasoning":  al.config.Agents.Defaults.ShowReasoning,
+				"enable_thinking": al.config.Agents.Defaults.EnableThinking,
 			})
 
 			if err == nil {
@@ -1189,8 +1190,10 @@ func (al *AgentLoop) summarizeSession(sessionKey string) {
 		// Merge them
 		mergePrompt := fmt.Sprintf("Merge these two conversation summaries into one cohesive summary:\n\n1: %s\n\n2: %s", s1, s2)
 		resp, err := al.provider.Chat(ctx, []providers.Message{{Role: "user", Content: mergePrompt}}, nil, al.model, map[string]interface{}{
-			"max_tokens":  1024,
-			"temperature": 0.3,
+			"max_tokens":      1024,
+			"temperature":     0.3,
+			"show_reasoning":  false,
+			"enable_thinking": false,
 		})
 		if err == nil {
 			finalSummary = resp.Content
@@ -1224,8 +1227,10 @@ func (al *AgentLoop) summarizeBatch(ctx context.Context, batch []providers.Messa
 	}
 
 	response, err := al.provider.Chat(ctx, []providers.Message{{Role: "user", Content: prompt}}, nil, al.model, map[string]interface{}{
-		"max_tokens":  1024,
-		"temperature": 0.3,
+		"max_tokens":      1024,
+		"temperature":     0.3,
+		"show_reasoning":  false,
+		"enable_thinking": false,
 	})
 	if err != nil {
 		return "", err
@@ -1280,7 +1285,7 @@ func (al *AgentLoop) handleCommand(ctx context.Context, msg bus.InboundMessage) 
 		switch args[0] {
 		case "models":
 			// TODO: Fetch available models dynamically if possible
-			return "Available models: glm-4.7, claude-3-5-sonnet, gpt-4o (configured in config.json/env)", true
+			return "Available models: deepseek-v4-flash, minimax-m2.7, gpt-5.4-mini, glm-5.1, nvidia/nemotron-3-super-120b-a12b:free, and more (configured in config.json)", true
 		case "channels":
 			if al.channelManager == nil {
 				return "Channel manager not initialized", true

@@ -72,6 +72,7 @@ type AgentDefaults struct {
 	MaxToolIterations    int     `json:"max_tool_iterations" env:"LUCKYCLAW_AGENTS_DEFAULTS_MAX_TOOL_ITERATIONS"`
 	ShowReasoning        bool    `json:"show_reasoning" env:"LUCKYCLAW_AGENTS_DEFAULTS_SHOW_REASONING"`
 	ChannelSkillFilter   bool    `json:"channel_skill_filter" env:"LUCKYCLAW_AGENTS_DEFAULTS_CHANNEL_SKILL_FILTER"`
+	EnableThinking       bool    `json:"enable_thinking" env:"LUCKYCLAW_AGENTS_DEFAULTS_ENABLE_THINKING"`
 }
 
 type ChannelsConfig struct {
@@ -244,6 +245,7 @@ func DefaultConfig() *Config {
 				MaxToolIterations:    25,
 				ShowReasoning:        false,
 				ChannelSkillFilter:   false,
+				EnableThinking:       false,
 			},
 		},
 		Channels: ChannelsConfig{

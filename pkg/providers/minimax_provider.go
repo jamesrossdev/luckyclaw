@@ -146,10 +146,14 @@ func (p *MiniMaxProvider) Chat(ctx context.Context, messages []Message, tools []
 	}
 
 	requestBody := map[string]interface{}{
-		"model":           normalizedModel,
-		"messages":        formattedMessages,
-		"stream":          false,
-		"reasoning_split": true,
+		"model":    normalizedModel,
+		"messages": formattedMessages,
+		"stream":   false,
+	}
+
+	enableThinking, _ := options["enable_thinking"].(bool)
+	if enableThinking {
+		requestBody["reasoning_split"] = true
 	}
 
 	if len(tools) > 0 {

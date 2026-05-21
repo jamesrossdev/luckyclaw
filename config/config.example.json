@@ -10,7 +10,8 @@
       "temperature": 0.6,
       "max_tool_iterations": 25,
       "show_reasoning": false,
-      "channel_skill_filter": false
+      "channel_skill_filter": false,
+      "enable_thinking": false
     }
   },
   "channels": {
