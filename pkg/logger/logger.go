@@ -34,6 +34,7 @@ var (
 	logger       *Logger
 	once         sync.Once
 	mu           sync.RWMutex
+	quiet        bool
 )
 
 type Logger struct {
@@ -59,6 +60,12 @@ func SetLevel(level LogLevel) {
 	mu.Lock()
 	defer mu.Unlock()
 	currentLevel = level
+}
+
+func SetQuiet(q bool) {
+	mu.Lock()
+	defer mu.Unlock()
+	quiet = q
 }
 
 func GetLevel() LogLevel {
@@ -123,20 +130,22 @@ func logMessage(level LogLevel, component string, message string, fields map[str
 		}
 	}
 
-	var fieldStr string
-	if len(fields) > 0 {
-		fieldStr = " " + formatFields(fields)
+	if !quiet {
+		var fieldStr string
+		if len(fields) > 0 {
+			fieldStr = " " + formatFields(fields)
+		}
+
+		logLine := fmt.Sprintf("[%s] [%s]%s %s%s",
+			entry.Timestamp,
+			logLevelNames[level],
+			formatComponent(component),
+			message,
+			fieldStr,
+		)
+
+		log.Println(logLine)
 	}
-
-	logLine := fmt.Sprintf("[%s] [%s]%s %s%s",
-		entry.Timestamp,
-		logLevelNames[level],
-		formatComponent(component),
-		message,
-		fieldStr,
-	)
-
-	log.Println(logLine)
 
 	if level == FATAL {
 		os.Exit(1)

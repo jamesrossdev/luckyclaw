@@ -669,13 +669,15 @@ func onboard(wipeWorkspace bool) {
 	hasExistingConfig := false
 	if _, err := os.Stat(configPath); err == nil {
 		hasExistingConfig = true
-		existingCfg, loadErr := config.LoadConfig(configPath)
-		if loadErr != nil {
-			fmt.Printf("  Error loading existing config: %v\n", loadErr)
-			fmt.Println("  Fix or reset your config, then run onboard again.")
-			os.Exit(1)
+		if !wipeWorkspace {
+			existingCfg, loadErr := config.LoadConfig(configPath)
+			if loadErr != nil {
+				fmt.Printf("  Error loading existing config: %v\n", loadErr)
+				fmt.Println("  Fix or reset your config, then run onboard again.")
+				os.Exit(1)
+			}
+			cfg = existingCfg
 		}
-		cfg = existingCfg
 	}
 
 	// Show hardware info (needs config for workspace path)
@@ -741,6 +743,9 @@ func onboard(wipeWorkspace bool) {
 	}
 
 	if freshOnboard {
+		cfg = config.DefaultConfig()
+		workspace = filepath.Clean(cfg.WorkspacePath())
+		hasExistingConfig = false
 		if err := validateWorkspaceWipePath(workspace); err != nil {
 			fmt.Printf("  Refusing to wipe unsafe workspace path: %s\n", workspace)
 			fmt.Printf("  Reason: %v\n", err)
@@ -918,9 +923,9 @@ func onboard(wipeWorkspace bool) {
 
 	cfg.Agents.Defaults.MaxToolIterations = 25
 
-	// Step 3: Timezone
+	// Step 7: Timezone
 	fmt.Println()
-	fmt.Println("  Step 3: Timezone")
+	fmt.Println("  Step 7: Timezone")
 	fmt.Println("  ─────────────────")
 	fmt.Println("  Find your Timezone code here:")
 	fmt.Println("  https://en.wikipedia.org/wiki/List_of_tz_database_time_zones#List")
@@ -951,9 +956,9 @@ func onboard(wipeWorkspace bool) {
 		}
 	}
 
-	// Step 4: Messaging Channels
+	// Step 8: Messaging Channels
 	fmt.Println()
-	fmt.Println("  Step 4: Messaging Channels")
+	fmt.Println("  Step 8: Messaging Channels")
 	fmt.Println("  ──────────────────────────")
 	fmt.Println("  Set up your chat channels. You can enable multiple platforms.")
 	fmt.Println()
@@ -1412,10 +1417,12 @@ func agentCmd() {
 	sessionKey := "cli:default"
 
 	args := os.Args[2:]
+	debugMode := false
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "--debug", "-d":
 			logger.SetLevel(logger.DEBUG)
+			debugMode = true
 			fmt.Println("🔍 Debug mode enabled")
 		case "-m", "--message":
 			if i+1 < len(args) {
@@ -1428,6 +1435,10 @@ func agentCmd() {
 				i++
 			}
 		}
+	}
+
+	if !debugMode {
+		logger.SetQuiet(true)
 	}
 
 	cfg, err := loadConfig()
@@ -1859,36 +1870,31 @@ func statusCmd() {
 	fmt.Println()
 	fmt.Printf("  Model: %s\n", cfg.Agents.Defaults.Model)
 	if cfg.Agents.Defaults.Provider != "" {
-		fmt.Printf("  Provider: %s\n", cfg.Agents.Defaults.Provider)
+		fmt.Printf("  Provider: %s (active)\n", cfg.Agents.Defaults.Provider)
 	}
 
-	hasOpenRouter := cfg.Providers.OpenRouter.APIKey != ""
-	hasAnthropic := cfg.Providers.Anthropic.APIKey != ""
-	hasOpenAI := cfg.Providers.OpenAI.APIKey != ""
-	hasGemini := cfg.Providers.Gemini.APIKey != ""
-	hasGroq := cfg.Providers.Groq.APIKey != ""
-
-	statusStr := func(enabled bool) string {
-		if enabled {
-			return "✓"
-		}
-		return "—"
-	}
-
-	activeProviders := []struct {
+	type providerEntry struct {
 		name string
-		set  bool
-	}{
-		{"OpenRouter", hasOpenRouter},
-		{"OpenAI", hasOpenAI},
-		{"Anthropic", hasAnthropic},
-		{"Gemini", hasGemini},
-		{"Groq", hasGroq},
+		key  string
 	}
-
-	for _, p := range activeProviders {
-		if p.set {
-			fmt.Printf("  %s: %s\n", p.name, statusStr(p.set))
+	providers := []providerEntry{
+		{"OpenRouter", cfg.Providers.OpenRouter.APIKey},
+		{"DeepSeek", cfg.Providers.DeepSeek.APIKey},
+		{"OpenAI", cfg.Providers.OpenAI.APIKey},
+		{"MiniMax", cfg.Providers.MiniMax.APIKey},
+		{"Anthropic", cfg.Providers.Anthropic.APIKey},
+		{"Gemini", cfg.Providers.Gemini.APIKey},
+		{"Groq", cfg.Providers.Groq.APIKey},
+		{"Zhipu", cfg.Providers.Zhipu.APIKey},
+		{"Moonshot", cfg.Providers.Moonshot.APIKey},
+		{"NVIDIA", cfg.Providers.Nvidia.APIKey},
+		{"ShengSuanYun", cfg.Providers.ShengSuanYun.APIKey},
+		{"Ollama", cfg.Providers.Ollama.APIKey},
+		{"vLLM", cfg.Providers.VLLM.APIKey},
+	}
+	for _, p := range providers {
+		if p.key != "" {
+			fmt.Printf("  %s: ✓\n", p.name)
 		}
 	}
 

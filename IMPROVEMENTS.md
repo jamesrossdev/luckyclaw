@@ -316,6 +316,38 @@ Allow multiple named assistant profiles, each with its own system prompt, skills
 ### Blocked by
 - Nothing. Can be implemented independently.
 
+## WhatsApp Enhancements
+
+### Status Privacy Awareness
+**Priority**: Medium
+**Description**: When `ignore_status_updates` is disabled, filter status update messages based on whether the sender has explicitly hidden their status from the bot's contact. WhatsApp clients can control status privacy per-contact, and whatsmeow can detect which statuses are visible vs hidden via the message metadata. This allows users to control which status updates the bot processes by adjusting their privacy settings rather than requiring a config change.
+
+**Implementation**:
+1. Inspect status update message metadata from whatsmeow to detect privacy/hidden flags
+2. When status is hidden from bot, silently drop the message
+3. When status is visible, process normally (subject to `ignore_status_updates` gate)
+
+**Benefit**: Users control bot behavior through WhatsApp privacy settings — no config edits needed.
+
+### Archive-Based Message Filtering
+**Priority**: Medium
+**Description**: Skip processing messages from contacts that the user has archived in WhatsApp. whatsmeow's contact store tracks archive state. When a contact is archived, the bot should ignore their messages, respecting the user's organizational intent.
+
+**Implementation**:
+1. Query whatsmeow's contact store for archive status on incoming messages
+2. Add `channels.whatsapp.ignore_archived` config toggle (default `false`)
+3. When enabled, drop messages from archived contacts before publishing to bus
+
+**Benefit**: Respects user's WhatsApp contact management — archived contacts don't trigger bot responses.
+
+### Business Mode Status Filtering
+**Priority**: Low
+**Description**: Extend business mode restrictions to include status update processing. When business mode is active, status updates from non-business contacts should be dropped.
+
+**Blocked by**: Status privacy awareness (above).
+
+---
+
 ## Cross-Platform Flashing Tool
 
 **Priority**: Low
