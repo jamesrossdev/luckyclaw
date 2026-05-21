@@ -289,7 +289,7 @@ Config: `/oem/.luckyclaw/config.json`
 
 | Provider       | Default Model            | Get API Key                                            |
 | -------------- | ------------------------ | ------------------------------------------------------ |
-| `openrouter`   | stepfun/step-3.5-flash:free (recommended) | [openrouter.ai/keys](https://openrouter.ai/keys) |
+| `openrouter`   | nvidia/nemotron-3-super-120b-a12b:free (recommended) | [openrouter.ai/keys](https://openrouter.ai/keys) |
 | `deepseek`     | deepseek-v4-flash        | [platform.deepseek.com](https://platform.deepseek.com) |
 | `openai`       | gpt-5.4-mini             | [platform.openai.com](https://platform.openai.com)     |
 | `minimax`      | minimax-m2.7             | [platform.minimax.io](https://platform.minimax.io)     |
@@ -310,7 +310,7 @@ Config: `/oem/.luckyclaw/config.json`
 | Setting            | Default Value                  |
 |--------------------|-------------------------------|
 | Provider           | `openrouter`                 |
-| Model              | `stepfun/step-3.5-flash:free` |
+| Model              | `nvidia/nemotron-3-super-120b-a12b:free` |
 | Max Tokens         | `auto-clamped from context_window (20%, max 16384)` |
 | Allow Unsafe Max Tokens | `false` (clamp enabled) |
 | Context Window     | Auto-detected from OpenRouter metadata |
