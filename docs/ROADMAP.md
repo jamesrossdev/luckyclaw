@@ -60,20 +60,27 @@ Items are prioritized by readiness and impact. Items may be moved between versio
 - **Onboarding idempotency** — re-running `luckyclaw onboard` now merges with existing config (preserving values) and skips workspace template overwrite for non-skill files
 - **Safe token clamp** — `max_tokens` is auto-clamped to `min(20% of context_window, 16384, provider_max_output)`, floor 1024, preventing context-window overflow errors on large-context models like DeepSeek v3.2
 
-## v0.2.5 (Planned)
+## v0.2.5 ✅
 
-- Evaluate MCP (Model Context Protocol) support — external tool server integration
-- Smart one-time cron fallback — auto-detect fully-specified cron expressions and set `DeleteAfterRun=true` so one-time clock reminders don't leave orphaned jobs
-- Explore pre-emptive context compression — compress history before API call instead of after 400 error
+- **Unified onboarding** — single provider menu (all 13 supported), no quick/advanced split. Auto-fetches model metadata (context window, thinking support, vision support) from OpenRouter public API. Manual context window fallback when metadata not found.
+- **DeepSeek fixes** — reasoning_content preserved across agent turns (prevents "must be passed back" API errors). Vision-unsupported error detection with automatic retry without images.
+- **Reasoning controls** — `show_reasoning` config toggle (default false). Think sanitizer strips orphan/malformed think tags. Separate reasoning block format when enabled.
+- **Provider improvements** — MiniMax base_resp error handling, reasoning_split support. DeepSeek API base fix (removed /v1 suffix). OpenRouter default model changed to `nvidia/nemotron-3-super-120b-a12b:free`.
+- **WhatsApp status filter** — `ignore_status_updates` config toggle (default true) blocks status@broadcast messages.
+- **Channel skill filter** — `channel_skill_filter` config toggle (default false) hides discord-mod outside Discord, whatsapp outside WhatsApp.
+- **Agent CLI quiet mode** — non-debug agent mode suppresses tool execution logs for clean conversational output.
+- **Dynamic status providers** — `luckyclaw status` shows all configured providers, not just 5 hardcoded ones.
+- **Config-reset separation** — fresh onboard no longer touches config; `luckyclaw config-reset` handles intentional deletion.
 
-## v0.2.x (Future Minor)
+## v0.2.6 (Planned)
 
 - Auto-update command (`luckyclaw update`) — binary-only OTA updates
-- Tool definition caching
-- Session save optimization (json.Marshal vs MarshalIndent)
+- Smart one-time cron fallback — auto-detect fully-specified cron expressions and set `DeleteAfterRun=true`
+- Evaluate pre-emptive context compression — compress history before API call instead of after 400 error
 
 ## Future
 
+- MCP (Model Context Protocol) support — external tool server integration (evaluated, deferred due to complexity/RAM concerns on Pico Plus)
 - System prompt caching (requires dynamic/static section split to avoid stale timestamps)
 - Telegram MarkdownV2 sanitizer (`parse_markdown_to_md_v2.go`) port
 - Custom DNS backup resolver (`0fe0582`) port

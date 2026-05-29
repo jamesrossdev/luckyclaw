@@ -198,6 +198,6 @@ The bot can execute sequential actions in the background before replying to the 
 - Bot **cannot ban** or **kick** users — it must escalate to a human admin by tagging them.
 - DM filter only works when `disable_dms: true` is set in the config.
 - The `exec`/`cron` tools are purposely blocked for Discord server channels. Use Telegram for personal assistant tasks.
-- **Do NOT use thinking/reasoning models** (e.g., deepseek-reasoner) in server mode — they output intent-only responses instead of executing tools. Use non-thinking models like `stepfun/step-3.5-flash:free`. Thinking models work fine in Telegram DMs.
+- **Do NOT use thinking/reasoning models** (e.g., deepseek-v4-pro) in server mode — they output intent-only responses instead of executing tools. Use non-thinking models like `nvidia/nemotron-3-super-120b-a12b:free`. Thinking models work fine in Telegram DMs.
 
 

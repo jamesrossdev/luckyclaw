@@ -40,6 +40,10 @@ const (
 	reconnectInitial    = 5 * time.Second
 	reconnectMax        = 5 * time.Minute
 	reconnectMultiplier = 2.0
+
+	inboundDedupMemoryTTL = 30 * time.Minute
+	inboundDedupDBTTL     = 24 * time.Hour
+	dedupCleanupInterval  = 10 * time.Minute
 )
 
 // compressImage strictly downsizes uploaded multi-modal image buffers
@@ -92,8 +96,9 @@ type WhatsAppChannel struct {
 	wg                sync.WaitGroup // tracks background goroutines (QR handler, reconnect)
 	rateLimiter       map[string][]time.Time
 	rateLimitMu       sync.Mutex
-	processedStanzas  sync.Map // stanzaID -> time.Time for deduplication
+	processedStanzas  sync.Map // dedupKey -> time.Time
 	stanzaCleanupOnce sync.Once
+	dedupMu           sync.Mutex
 }
 
 // NewWhatsAppChannel creates a WhatsApp channel that uses whatsmeow for connection.
@@ -137,6 +142,9 @@ func (c *WhatsAppChannel) Start(ctx context.Context) error {
 	}
 	db.SetMaxOpenConns(1)
 	db.SetMaxIdleConns(1)
+	if err := ensureInboundDedupTable(db); err != nil {
+		logger.WarnCF("whatsapp", "Failed to initialize inbound dedup table", map[string]any{"error": err.Error()})
+	}
 
 	waLogger := waLog.Stdout("WhatsApp", "WARN", true)
 	container := sqlstore.NewWithDB(db, sqliteDriver, waLogger)
@@ -357,34 +365,128 @@ func (c *WhatsAppChannel) reconnectWithBackoff() {
 	}
 }
 
-func (c *WhatsAppChannel) isDuplicateStanza(stanzaID string) bool {
-	if stanzaID == "" {
-		return false
+func ensureInboundDedupTable(db *sql.DB) error {
+	if db == nil {
+		return nil
 	}
-	if val, ok := c.processedStanzas.Load(stanzaID); ok {
-		timestamp := val.(time.Time)
-		if time.Since(timestamp) < 60*time.Second {
-			return true
+	if _, err := db.Exec(`
+CREATE TABLE IF NOT EXISTS inbound_dedup (
+	dedup_key TEXT PRIMARY KEY,
+	stanza_id TEXT NOT NULL,
+	chat_id TEXT NOT NULL,
+	sender_jid TEXT NOT NULL,
+	is_from_me INTEGER NOT NULL,
+	seen_at INTEGER NOT NULL
+);`); err != nil {
+		return err
+	}
+	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_inbound_dedup_seen_at ON inbound_dedup(seen_at);`); err != nil {
+		return err
+	}
+	return nil
+}
+
+func makeInboundDedupKey(chatID, senderJID, stanzaID string, isFromMe bool) string {
+	return fmt.Sprintf("%s|%s|%s|%t", chatID, senderJID, stanzaID, isFromMe)
+}
+
+func (c *WhatsAppChannel) isDuplicateStanza(chatID, senderJID, stanzaID string, isFromMe bool) (bool, string, time.Duration) {
+	if stanzaID == "" {
+		return false, "", 0
+	}
+
+	key := makeInboundDedupKey(chatID, senderJID, stanzaID, isFromMe)
+	now := time.Now()
+
+	c.dedupMu.Lock()
+	defer c.dedupMu.Unlock()
+
+	if val, ok := c.processedStanzas.Load(key); ok {
+		if ts, ok := val.(time.Time); ok {
+			if age := now.Sub(ts); age <= inboundDedupMemoryTTL {
+				return true, "memory", age
+			}
+			c.processedStanzas.Delete(key)
 		}
 	}
-	c.processedStanzas.Store(stanzaID, time.Now())
-	return false
+
+	c.mu.Lock()
+	db := c.db
+	c.mu.Unlock()
+
+	if db != nil {
+		var seenAt int64
+		err := db.QueryRow(`SELECT seen_at FROM inbound_dedup WHERE dedup_key = ?`, key).Scan(&seenAt)
+		if err == nil {
+			ts := time.Unix(seenAt, 0)
+			age := now.Sub(ts)
+			if age <= inboundDedupDBTTL {
+				c.processedStanzas.Store(key, ts)
+				return true, "sqlite", age
+			}
+		} else if err != sql.ErrNoRows {
+			logger.WarnCF("whatsapp", "Failed to read inbound dedup key", map[string]any{"error": err.Error(), "stanza_id": stanzaID})
+		}
+
+		if _, err := db.Exec(`
+INSERT INTO inbound_dedup (dedup_key, stanza_id, chat_id, sender_jid, is_from_me, seen_at)
+VALUES (?, ?, ?, ?, ?, ?)
+ON CONFLICT(dedup_key) DO UPDATE SET
+	stanza_id = excluded.stanza_id,
+	chat_id = excluded.chat_id,
+	sender_jid = excluded.sender_jid,
+	is_from_me = excluded.is_from_me,
+	seen_at = excluded.seen_at
+`, key, stanzaID, chatID, senderJID, boolToInt(isFromMe), now.Unix()); err != nil {
+			logger.WarnCF("whatsapp", "Failed to persist inbound dedup key", map[string]any{"error": err.Error(), "stanza_id": stanzaID})
+		}
+	}
+
+	c.processedStanzas.Store(key, now)
+	return false, "", 0
+}
+
+func boolToInt(v bool) int {
+	if v {
+		return 1
+	}
+	return 0
 }
 
 func (c *WhatsAppChannel) startStanzaCleanup() {
 	c.stanzaCleanupOnce.Do(func() {
 		go func() {
-			ticker := time.NewTicker(5 * time.Minute)
-			for range ticker.C {
-				now := time.Now()
-				c.processedStanzas.Range(func(key, value interface{}) bool {
-					if timestamp, ok := value.(time.Time); ok {
-						if now.Sub(timestamp) > 5*time.Minute {
-							c.processedStanzas.Delete(key)
+			ticker := time.NewTicker(dedupCleanupInterval)
+			defer ticker.Stop()
+			var done <-chan struct{}
+			if c.runCtx != nil {
+				done = c.runCtx.Done()
+			}
+			for {
+				select {
+				case <-ticker.C:
+					now := time.Now()
+					c.processedStanzas.Range(func(key, value interface{}) bool {
+						if timestamp, ok := value.(time.Time); ok {
+							if now.Sub(timestamp) > inboundDedupMemoryTTL {
+								c.processedStanzas.Delete(key)
+							}
+						}
+						return true
+					})
+
+					c.mu.Lock()
+					db := c.db
+					c.mu.Unlock()
+					if db != nil {
+						cutoff := now.Add(-inboundDedupDBTTL).Unix()
+						if _, err := db.Exec(`DELETE FROM inbound_dedup WHERE seen_at < ?`, cutoff); err != nil {
+							logger.WarnCF("whatsapp", "Failed to prune inbound dedup table", map[string]any{"error": err.Error()})
 						}
 					}
-					return true
-				})
+				case <-done:
+					return
+				}
 			}
 		}()
 	})
@@ -432,9 +534,24 @@ func (c *WhatsAppChannel) handleIncoming(evt *events.Message) {
 
 	stanzaID := evt.Info.ID
 	senderUser := evt.Info.Sender.User
-	if c.isDuplicateStanza(stanzaID) {
-		logger.DebugCF("whatsapp", "Skipping duplicate stanza", map[string]any{
-			"stanza_id": stanzaID,
+	chatID := evt.Info.Chat.String()
+
+	if c.config.IgnoreStatusUpdates && strings.HasPrefix(chatID, "status") {
+		logger.DebugCF("whatsapp", "Ignoring status update message", map[string]any{
+			"chat_id":     chatID,
+			"sender_user": senderUser,
+		})
+		return
+	}
+
+	if isDup, source, age := c.isDuplicateStanza(chatID, evt.Info.Sender.String(), stanzaID, evt.Info.IsFromMe); isDup {
+		logger.InfoCF("whatsapp", "duplicate inbound dropped", map[string]any{
+			"stanza_id":  stanzaID,
+			"chat_id":    chatID,
+			"sender_jid": evt.Info.Sender.String(),
+			"source":     source,
+			"age":        age.Round(time.Second).String(),
+			"is_from_me": evt.Info.IsFromMe,
 		})
 		return
 	}
@@ -464,8 +581,6 @@ func (c *WhatsAppChannel) handleIncoming(evt *events.Message) {
 	if !altID.IsEmpty() {
 		senderID = evt.Info.Sender.User + "|" + altID.String()
 	}
-
-	chatID := evt.Info.Chat.String()
 
 	// Sender identity normalization for allow_from matching happens in BaseChannel.
 	content := evt.Message.GetConversation()

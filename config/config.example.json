@@ -3,11 +3,15 @@
     "defaults": {
       "workspace": "~/.luckyclaw/workspace",
       "restrict_to_workspace": true,
-      "model": "stepfun/step-3.5-flash:free",
+      "provider": "openrouter",
+      "model": "nvidia/nemotron-3-super-120b-a12b:free",
       "max_tokens": 16384,
       "allow_unsafe_max_tokens": false,
       "temperature": 0.6,
-      "max_tool_iterations": 25
+      "max_tool_iterations": 25,
+      "show_reasoning": false,
+      "channel_skill_filter": false,
+      "enable_thinking": false
     }
   },
   "channels": {
@@ -33,7 +37,8 @@
     "whatsapp": {
       "enabled": false,
       "bridge_url": "ws://localhost:3001",
-      "allow_from": []
+      "allow_from": [],
+      "ignore_status_updates": true
     },
     "feishu": {
       "enabled": false,
@@ -114,6 +119,10 @@
     "ollama": {
       "api_key": "",
       "api_base": "http://localhost:11434/v1"
+    },
+    "minimax": {
+      "api_key": "",
+      "api_base": ""
     }
   },
   "tools": {

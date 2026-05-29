@@ -59,9 +59,9 @@ Items listed here are planned enhancements that are not yet scheduled for implem
 
 ## Skill System
 
-### Channel-Based Skill Filtering
+### Channel-Based Skill Filtering via Frontmatter
 **Priority**: Medium
-**Description**: Filter skills by message origin channel to prevent cross-channel skill leakage. Currently, all skills are visible to the LLM regardless of which channel the message came from, causing the LLM to read Discord-specific moderation content when responding to WhatsApp users.
+**Description**: Filter skills by message origin channel to prevent cross-channel skill leakage. A basic `channel_skill_filter` config toggle already exists (hides `discord-mod` outside Discord, `whatsapp` outside WhatsApp), but a more granular per-skill `channels:` frontmatter approach would allow skill authors to declare which channels their skill applies to.
 
 **Implementation**:
 
@@ -75,37 +75,13 @@ Items listed here are planned enhancements that are not yet scheduled for implem
    ```
    - `channels: [discord]` → only visible on Discord
    - `channels: [whatsapp]` → only visible on WhatsApp
-   - No `channels:` field or `channels: [all]` → visible on all channels
+   - No `channels:` field → visible on all channels
 
-2. **Modify `SkillMetadata` struct** in `pkg/skills/loader.go`:
-   ```go
-   type SkillMetadata struct {
-       Name        string   `json:"name"`
-       Description string   `json:"description"`
-       Channels    []string `json:"channels"` // Optional: channels this skill applies to
-   }
-   ```
+2. **Modify `SkillMetadata` struct** in `pkg/skills/loader.go` to parse `channels:`
+3. **Update `BuildSkillsSummaryForChannel`** to use frontmatter over hardcoded channel filtering
+4. **Update skill SKILL.md files** to include `channels:` frontmatter
 
-3. **Modify `BuildSkillsSummary()`** in `pkg/skills/loader.go`:
-   - Accept `channel string` parameter
-   - Filter skills: `skill.Channels == nil || contains(skill.Channels, channel) || contains(skill.Channels, "all")`
-
-4. **Update `BuildSystemPrompt()`** in `pkg/agent/context.go`:
-   - Pass `channel` parameter to `BuildSkillsSummary(channel)`
-
-5. **Skill channel assignments** (initial):
-   - `discord-mod/SKILL.md` → `channels: [discord]`
-   - `whatsapp/SKILL.md` → `channels: [whatsapp]`
-   - `weather/SKILL.md` → omitempty (all channels)
-   - `summarize/SKILL.md` → omitempty (all channels)
-   - `hardware/SKILL.md` → omitempty (all channels)
-
-**Files affected**:
-- `workspace/skills/*/SKILL.md` — add `channels:` frontmatter
-- `pkg/skills/loader.go` — filter by channel
-- `pkg/agent/context.go` — pass channel to skills loader
-
-**Benefit**: Prevents LLM from reading Discord moderation rules when responding to WhatsApp users, and vice versa. Reduces irrelevant context in system prompt, saves tokens.
+**Current State**: A basic `channel_skill_filter` config toggle exists in `pkg/agent/context.go` that hardcodes the filtering rules. The frontmatter approach would be more flexible and skill-author-controlled.
 
 **Blocked by**: Nothing. Can be implemented independently.
 
@@ -261,6 +237,76 @@ These skills require significant RAM and are listed in `docs/ROADMAP.md` under F
 **RAM Impact**: Minimal (uses `gh` CLI, no additional processes)
 
 **Reference**: [ZeroClaw PR Review Skill](https://github.com/zeroclaw-labs/zeroclaw/blob/master/.claude/skills/github-pr-review/SKILL.md)
+
+## Multi-Assistant Support
+**Target**: v0.2.6
+**Priority**: Medium
+
+### Problem
+A single LuckyClaw instance on Pro/Max hardware can handle multiple topics simultaneously, but users currently need separate devices or manual session switching. There is no way to run independent AI assistants (e.g., "Home Assistant" for household tasks, "Coding Assistant" for projects) on the same device with isolated memory and tools.
+
+### Proposed Solution
+Allow multiple named assistant profiles, each with its own system prompt, skills, and conversation history. A meta prompt (or frontend routing layer) dispatches incoming messages to the appropriate assistant based on name mention or topic.
+
+### Scope
+- Multiple `AssistantID` profiles in `config.json`
+- Each profile: `id`, `name`, `systemPrompt`, `enabledChannels`, `skills`
+- Dispatch via `@AssistantName` mention in Telegram/WhatsApp
+- Default dispatch to first profile for untargeted messages
+- Skills per-profile via existing channel filtering mechanism
+
+### Out of Scope (Future)
+- Per-profile API keys, separate LLM providers
+- Web dashboard, user management
+
+### Terminology
+- **Profile**: A named assistant configuration (system prompt + skills)
+- **Assistant ID**: The identifier used in `@AssistantID` mentions
+- **Dispatch**: Routing a message to the correct profile by mention
+
+### Files Affected
+- `pkg/config/config.go` — add `AssistantProfiles []Profile`
+- `pkg/agent/agent.go` — load profile by ID in runAgentLoop
+- `pkg/channels/` — strip `@AssistantID` prefix before agent dispatch
+
+### RAM Impact
+- ~2MB base per additional active profile (session storage)
+- Not recommended for Pico Plus (64MB)
+
+### Blocked by
+- Nothing. Can be implemented independently.
+
+## WhatsApp Enhancements
+
+### Status Privacy Awareness
+**Priority**: Medium
+**Description**: When `ignore_status_updates` is disabled, filter status update messages based on whether the sender has explicitly hidden their status from the bot's contact. WhatsApp clients can control status privacy per-contact, and whatsmeow can detect which statuses are visible vs hidden via the message metadata. This allows users to control which status updates the bot processes by adjusting their privacy settings rather than requiring a config change.
+
+**Implementation**:
+1. Inspect status update message metadata from whatsmeow to detect privacy/hidden flags
+2. When status is hidden from bot, silently drop the message
+3. When status is visible, process normally (subject to `ignore_status_updates` gate)
+
+**Benefit**: Users control bot behavior through WhatsApp privacy settings — no config edits needed.
+
+### Archive-Based Message Filtering
+**Priority**: Medium
+**Description**: Skip processing messages from contacts that the user has archived in WhatsApp. whatsmeow's contact store tracks archive state. When a contact is archived, the bot should ignore their messages, respecting the user's organizational intent.
+
+**Implementation**:
+1. Query whatsmeow's contact store for archive status on incoming messages
+2. Add `channels.whatsapp.ignore_archived` config toggle (default `false`)
+3. When enabled, drop messages from archived contacts before publishing to bus
+
+**Benefit**: Respects user's WhatsApp contact management — archived contacts don't trigger bot responses.
+
+### Business Mode Status Filtering
+**Priority**: Low
+**Description**: Extend business mode restrictions to include status update processing. When business mode is active, status updates from non-business contacts should be dropped.
+
+**Blocked by**: Status privacy awareness (above).
+
+---
 
 ## Cross-Platform Flashing Tool
 

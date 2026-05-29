@@ -43,7 +43,7 @@ firmware/overlay/etc/     ← Init script + SSH banner baked into firmware rootf
 - **CLI**: Added `luckyclaw stop`, `restart`, `gateway -b` (background)
 - **Init script**: Auto-starts gateway on boot with OOM protection
 - **SSH banner**: Shows ASCII art, status, memory, all commands on login
-- **Default model**: `stepfun/step-3.5-flash:free` (free tier)
+- **Default model**: `nvidia/nemotron-3-super-120b-a12b:free` (free tier)
 - **Defaults**: `max_tokens` is safety-clamped to `min(20% of context_window, 16384, provider_max_output)`, floor 1024; `allow_unsafe_max_tokens=false` (set to `true` in config to disable clamping); `max_tool_iterations=25`; `context_window=model-specific` (queried during onboarding)
 
 ### What We Did NOT Change

@@ -211,6 +211,23 @@ func (cb *ContextBuilder) BuildMessages(history []providers.Message, summary str
 
 	systemPrompt := cb.BuildSystemPrompt()
 
+	if cb.config.Agents.Defaults.ChannelSkillFilter && channel != "" {
+		filteredSkills := cb.skillsLoader.BuildSkillsSummaryForChannel(channel)
+		if filteredSkills != "" {
+			systemPrompt = strings.Replace(systemPrompt, cb.skillsLoader.BuildSkillsSummary(), filteredSkills, 1)
+		} else {
+			skillsSummary := cb.skillsLoader.BuildSkillsSummary()
+			if skillsSummary != "" {
+				fullSection := fmt.Sprintf(`# Skills
+
+The following skills extend your capabilities. To use a skill, read its SKILL.md file using the read_file tool.
+
+%s`, skillsSummary)
+				systemPrompt = strings.Replace(systemPrompt, fullSection, "", 1)
+			}
+		}
+	}
+
 	// Inject channel-specific formatting skill BEFORE session info,
 	// giving it higher priority in the LLM's attention.
 	if channel == "whatsapp" {

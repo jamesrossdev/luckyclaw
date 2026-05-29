@@ -51,10 +51,22 @@ func NewHTTPProvider(apiKey, apiBase, proxy string) *HTTPProvider {
 	}
 }
 
+func isMiniMaxEndpoint(apiBase string) bool {
+	base := strings.ToLower(apiBase)
+	return strings.Contains(base, "api.minimax.io") || strings.Contains(base, "api.minimaxi.com")
+}
+
+func isDeepSeekEndpoint(apiBase string) bool {
+	base := strings.ToLower(apiBase)
+	return strings.Contains(base, "api.deepseek.com") || strings.Contains(base, "deepseek.com")
+}
+
 func (p *HTTPProvider) Chat(ctx context.Context, messages []Message, tools []ToolDefinition, model string, options map[string]interface{}) (*LLMResponse, error) {
 	if p.apiBase == "" {
 		return nil, fmt.Errorf("API base not configured")
 	}
+
+	isMiniMax := isMiniMaxEndpoint(p.apiBase)
 
 	// Strip provider prefix from model name (e.g., moonshot/kimi-k2.5 -> kimi-k2.5)
 	// BUT NOT for OpenRouter — OpenRouter uses full model IDs like "nvidia/nemotron-3-nano-30b-a3b:free"
@@ -173,12 +185,28 @@ func (p *HTTPProvider) Chat(ctx context.Context, messages []Message, tools []Too
 			formattedMsg["tool_call_id"] = msg.ToolCallID
 		}
 
+		// DeepSeek requires reasoning_content to be replayed in subsequent
+		// requests when the assistant turn participates in a tool call round.
+		if isDeepSeekEndpoint(p.apiBase) && msg.Role == "assistant" && msg.ReasoningContent != "" {
+			formattedMsg["reasoning_content"] = msg.ReasoningContent
+		}
+
 		formattedMessages = append(formattedMessages, formattedMsg)
 	}
 
 	requestBody := map[string]interface{}{
 		"model":    model,
 		"messages": formattedMessages,
+	}
+
+	enableThinking, _ := options["enable_thinking"].(bool)
+
+	if isMiniMax && enableThinking {
+		requestBody["reasoning_split"] = true
+	}
+
+	if isDeepSeekEndpoint(p.apiBase) && enableThinking {
+		requestBody["thinking"] = map[string]string{"type": "enabled"}
 	}
 
 	if len(tools) > 0 {
@@ -206,14 +234,17 @@ func (p *HTTPProvider) Chat(ctx context.Context, messages []Message, tools []Too
 	}
 
 	// Enable file-parser plugin for document support (PDF, DOCX, etc.)
-	// This allows OpenRouter to parse documents for models that don't natively support them
-	requestBody["plugins"] = []map[string]interface{}{
-		{
-			"id": "file-parser",
-			"pdf": map[string]string{
-				"engine": "cloudflare-ai",
+	// This allows OpenRouter to parse documents for models that don't natively support them.
+	// Skip for MiniMax — it does not support the plugins field.
+	if !isMiniMax {
+		requestBody["plugins"] = []map[string]interface{}{
+			{
+				"id": "file-parser",
+				"pdf": map[string]string{
+					"engine": "cloudflare-ai",
+				},
 			},
-		},
+		}
 	}
 
 	jsonData, err := json.Marshal(requestBody)
@@ -246,77 +277,16 @@ func (p *HTTPProvider) Chat(ctx context.Context, messages []Message, tools []Too
 		return nil, fmt.Errorf("API request failed:\n  Status: %d\n  Body:   %s", resp.StatusCode, string(body))
 	}
 
-	return p.parseResponse(body)
+	response, err := p.parseResponse(body)
+	if err != nil {
+		return nil, err
+	}
+
+	return response, nil
 }
 
 func (p *HTTPProvider) parseResponse(body []byte) (*LLMResponse, error) {
-	var apiResponse struct {
-		Choices []struct {
-			Message struct {
-				Content   string `json:"content"`
-				ToolCalls []struct {
-					ID       string `json:"id"`
-					Type     string `json:"type"`
-					Function *struct {
-						Name      string `json:"name"`
-						Arguments string `json:"arguments"`
-					} `json:"function"`
-				} `json:"tool_calls"`
-			} `json:"message"`
-			FinishReason string `json:"finish_reason"`
-		} `json:"choices"`
-		Usage *UsageInfo `json:"usage"`
-	}
-
-	if err := json.Unmarshal(body, &apiResponse); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal response: %w", err)
-	}
-
-	if len(apiResponse.Choices) == 0 {
-		return &LLMResponse{
-			Content:      "",
-			FinishReason: "stop",
-		}, nil
-	}
-
-	choice := apiResponse.Choices[0]
-
-	toolCalls := make([]ToolCall, 0, len(choice.Message.ToolCalls))
-	for _, tc := range choice.Message.ToolCalls {
-		arguments := make(map[string]interface{})
-		name := ""
-
-		// Handle OpenAI format with nested function object
-		if tc.Type == "function" && tc.Function != nil {
-			name = tc.Function.Name
-			if tc.Function.Arguments != "" {
-				if err := json.Unmarshal([]byte(tc.Function.Arguments), &arguments); err != nil {
-					arguments["raw"] = tc.Function.Arguments
-				}
-			}
-		} else if tc.Function != nil {
-			// Legacy format without type field
-			name = tc.Function.Name
-			if tc.Function.Arguments != "" {
-				if err := json.Unmarshal([]byte(tc.Function.Arguments), &arguments); err != nil {
-					arguments["raw"] = tc.Function.Arguments
-				}
-			}
-		}
-
-		toolCalls = append(toolCalls, ToolCall{
-			ID:        tc.ID,
-			Name:      name,
-			Arguments: arguments,
-		})
-	}
-
-	return &LLMResponse{
-		Content:      choice.Message.Content,
-		ToolCalls:    toolCalls,
-		FinishReason: choice.FinishReason,
-		Usage:        apiResponse.Usage,
-	}, nil
+	return parseOpenAICompatResponse(body, "")
 }
 
 func (p *HTTPProvider) GetDefaultModel() string {
@@ -414,6 +384,12 @@ func CreateProvider(cfg *config.Config) (LLMProvider, error) {
 					apiBase = "https://generativelanguage.googleapis.com/v1beta"
 				}
 			}
+		case "ollama":
+			apiKey = cfg.Providers.Ollama.APIKey
+			apiBase = cfg.Providers.Ollama.APIBase
+			if apiBase == "" {
+				apiBase = "http://localhost:11434/v1"
+			}
 		case "vllm":
 			if cfg.Providers.VLLM.APIBase != "" {
 				apiKey = cfg.Providers.VLLM.APIKey
@@ -444,10 +420,7 @@ func CreateProvider(cfg *config.Config) (LLMProvider, error) {
 				apiKey = cfg.Providers.DeepSeek.APIKey
 				apiBase = cfg.Providers.DeepSeek.APIBase
 				if apiBase == "" {
-					apiBase = "https://api.deepseek.com/v1"
-				}
-				if model != "deepseek-chat" && model != "deepseek-reasoner" {
-					model = "deepseek-chat"
+					apiBase = "https://api.deepseek.com"
 				}
 			}
 		case "github_copilot", "copilot":
@@ -457,6 +430,15 @@ func CreateProvider(cfg *config.Config) (LLMProvider, error) {
 				apiBase = "localhost:4321"
 			}
 			return NewGitHubCopilotProvider(apiBase, cfg.Providers.GitHubCopilot.ConnectMode, model)
+		case "minimax":
+			if cfg.Providers.MiniMax.APIKey != "" {
+				apiBase := cfg.Providers.MiniMax.APIBase
+				if apiBase == "" {
+					apiBase = "https://api.minimax.io/v1"
+				}
+				proxy := cfg.Providers.MiniMax.Proxy
+				return NewMiniMaxProvider(cfg.Providers.MiniMax.APIKey, apiBase, proxy), nil
+			}
 
 		}
 
@@ -564,7 +546,8 @@ func CreateProvider(cfg *config.Config) (LLMProvider, error) {
 		}
 	}
 
-	if apiKey == "" && !strings.HasPrefix(model, "bedrock/") {
+	isLocalEndpoint := strings.HasPrefix(apiBase, "http://localhost") || strings.HasPrefix(apiBase, "http://127.0.0.1")
+	if apiKey == "" && !isLocalEndpoint && !strings.HasPrefix(model, "bedrock/") {
 		return nil, fmt.Errorf("no API key configured for provider (model: %s)", model)
 	}
 

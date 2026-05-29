@@ -167,11 +167,15 @@ luckyclaw onboard --wipe-workspace
 
 The wizard walks you through:
 
-1. **API Provider** — OpenRouter - but you can manually set up OpenAI, Anthropic, Ollama and others in config.json
-2. **API Key** — Paste your key, it's validated in real-time
-3. **Timezone** — Explicitly enter your IANA Zone classification via the [Wikipedia TZ Database List](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones#List) 
-4. **Messaging** — Optionally set up Telegram and/or Discord
-5. **Start gateway** — Optionally start the AI gateway in the background
+1. **Provider** — Select from 13 supported providers (OpenRouter, DeepSeek, OpenAI, MiniMax, Zhipu, and more)
+2. **API Key + API Base** — Paste your key (OpenRouter keys are validated live)
+3. **Model** — Keep the suggested default or set a custom model ID
+4. **Model Capabilities** — Auto-detects context window, max output, thinking mode, and vision support via OpenRouter metadata
+5. **Thinking Mode** — Optionally enable thinking/reasoning mode (if supported by the model)
+6. **Reasoning visibility** — Choose whether reasoning output is shown to users (`show_reasoning`)
+7. **Timezone** — Explicitly enter your IANA Zone classification via the [Wikipedia TZ Database List](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones#List)
+8. **Messaging** — Optionally set up Telegram, Discord, and/or WhatsApp
+9. **Start gateway** — Optionally start the AI gateway in the background
 
 ### 4. Chat!
 
@@ -283,30 +287,73 @@ Config: `/oem/.luckyclaw/config.json`
 
 ### Providers
 
-| Provider       | Purpose                    | Get API Key                                            |
-| -------------- | -------------------------- | ------------------------------------------------------ |
-| `openrouter`   | Many models (recommended)  | [openrouter.ai/keys](https://openrouter.ai/keys)      |
-| `openai`       | GPT models                 | [platform.openai.com](https://platform.openai.com)     |
-| `anthropic`    | Claude models              | [console.anthropic.com](https://console.anthropic.com) |
-| `gemini`       | Google Gemini              | [aistudio.google.com](https://aistudio.google.com)     |
-| `groq`         | Fast inference + voice     | [console.groq.com](https://console.groq.com)           |
-| `ollama`       | Local models (no API key)  | [ollama.com](https://ollama.com)                       |
+| Provider       | Default Model            | Get API Key                                            |
+| -------------- | ------------------------ | ------------------------------------------------------ |
+| `openrouter`   | nvidia/nemotron-3-super-120b-a12b:free (recommended) | [openrouter.ai/keys](https://openrouter.ai/keys) |
+| `deepseek`     | deepseek-v4-flash        | [platform.deepseek.com](https://platform.deepseek.com) |
+| `openai`       | gpt-5.4-mini             | [platform.openai.com](https://platform.openai.com)     |
+| `minimax`      | minimax-m2.7             | [platform.minimax.io](https://platform.minimax.io)     |
+| `zhipu`        | glm-5.1                  | [open.bigmodel.cn](https://open.bigmodel.cn)           |
+| `anthropic`    | claude-sonnet-4-5-20250929 | [console.anthropic.com](https://console.anthropic.com) |
+| `gemini`       | gemini-2.5-flash         | [aistudio.google.com](https://aistudio.google.com)     |
+| `groq`         | llama-3.3-70b-versatile  | [console.groq.com](https://console.groq.com)           |
+| `ollama`       | llama3.2 (local, no key) | [ollama.com](https://ollama.com)                       |
+| `moonshot`     | kimi-k2.5                | [platform.moonshot.cn](https://platform.moonshot.cn)   |
+| `nvidia`       | nvidia/llama-3.3-nemotron-super-49b-v1 | [build.nvidia.com](https://build.nvidia.com) |
+| `shengsuanyun` | deepseek-chat            | [router.shengsuanyun.com](https://router.shengsuanyun.com) |
+| `vllm`         | custom-model             | Self-hosted                                             |
+
+> Note: Some provider links may be referral links. This does not change recommendations and helps support project maintenance.
 
 ### Default Configuration
 
 | Setting            | Default Value                  |
 |--------------------|-------------------------------|
 | Provider           | `openrouter`                 |
-| Model              | `stepfun/step-3.5-flash:free` |
-| Max Tokens         | `auto-clamped to 20% of context_window, max 16384` |
+| Model              | `nvidia/nemotron-3-super-120b-a12b:free` |
+| Max Tokens         | `auto-clamped from context_window (20%, max 16384)` |
 | Allow Unsafe Max Tokens | `false` (clamp enabled) |
-| Context Window     | Model-specific (queried via API) |
+| Context Window     | Auto-detected from OpenRouter metadata |
 | Temperature        | `0.6`                         |
 | Max Tool Iterations| `25`                          |
+| Show Reasoning     | `false`                        |
+| Enable Thinking    | `false`                        |
+| Channel Skill Filter | `false` (show all skills to all channels) |
+| WhatsApp: Ignore Status Updates | `true` (skip status@broadcast) |
 
 > **Max Tokens Safety:** On startup (and during onboarding), `max_tokens` is automatically clamped to `min(20% of context_window, 16384, provider_max_output)` with a floor of 1024. This prevents context-window overflow errors on models like DeepSeek v3.2 while preserving usable output sizes. Existing configs are auto-healed on gateway start.
 >
 > To disable clamping and use a custom `max_tokens` value exactly as set, add `"allow_unsafe_max_tokens": true` to your `config.json` under `agents.defaults`. This opt-out is intended for advanced users who want maximum output size at the risk of overflow errors.
+
+### Configuring Non-OpenRouter Providers
+
+Advanced onboarding can configure these directly, or you can edit `config.json` manually:
+
+```json
+{
+  "agents": {
+    "defaults": {
+      "provider": "minimax",
+      "model": "minimax-m2.7"
+    }
+  },
+  "providers": {
+    "minimax": {
+      "api_key": "YOUR_API_KEY",
+      "api_base": ""
+    }
+  }
+}
+```
+
+The key settings are:
+- **`agents.defaults.provider`** — provider name (e.g., `minimax`, `openai`, `anthropic`)
+- **`agents.defaults.model`** — model identifier for that provider
+- **`agents.defaults.show_reasoning`** — `false` by default; when `true`, responses include a separate reasoning block
+- **`providers.<name>.api_key`** — your API key (required)
+- **`providers.<name>.api_base`** — optional custom endpoint (defaults to provider's standard URL)
+
+For MiniMax specifically, see the [MiniMax Provider Docs](docs/MINIMAX.md) for model options and details.
 
 ### Workspace Layout
 
